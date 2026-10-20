@@ -9,7 +9,8 @@ Reproductor de música ligero para la terminal.
 ## Filosofía
 
 - **Ligero por diseño**: streaming desde disco — un archivo nunca se carga
-  completo en RAM (la memoria es plana aunque la pista dure horas).
+  completo en RAM (la memoria es plana aunque la pista dure horas). Lo mismo
+  aplica a las radios online: el stream se descarga en bloques, nunca entero.
 - **Dependencias mínimas**: motor de audio con solo los decoders que se usan
   (`mp3`, `flac`, `vorbis`, `wav`); nada de subsistemas que no se usan.
 - **Terminal-first**: toda la funcionalidad accesible por teclado.
@@ -27,8 +28,9 @@ cargo run -- /ruta --cli        # modo consola clásico
 ```
 Ctrl+→ / Ctrl+←    cambia la vista (Sugeridos ↔ Cola)
 → / ←              pista siguiente / anterior
-Enter              reproduce la pista seleccionada
+Enter              reproduce la pista seleccionada; en Sugeridos conecta el stream
 j / k o ↑ / ↓      navega la lista
+f                  en Sugeridos: alterna radios ↔ temas y rebusca
 espacio            pausa / reanuda
 a                  alterna barajado
 r                  cicla repetición (off → todas → una)
@@ -36,6 +38,15 @@ r                  cicla repetición (off → todas → una)
 s                  detener
 q / Esc            salir
 ```
+
+La vista **Sugeridos** trae música online sin clave de API:
+
+- `radio-browser.info` — radios del mundo, streaming directo mp3.
+- `archive.org` — temas de acceso abierto (dominio público / CC), con la
+  URL del mp3 resuelta al momento de conectar.
+
+Nota: no hay decodificador AAC, así que las emisoras listadas como
+`aac` no sonarán; elige alguna marcada `mp3`.
 
 ### Modo consola (`--cli`)
 
@@ -50,6 +61,9 @@ repetir [off|todas|una]  modo de repetición (sin argumento: cicla)
 buscar <+s|-s|m:ss>      salto de tiempo (ej.: +15, -30, 2:10)
 volumen [0-100]          ajusta (o consulta) el volumen
 guardar <archivo>        guarda la cola como lista .m3u
+radios <consulta>        busca radios online (ej.: radios lofi)
+temas <consulta>         busca temas cc en archive.org (ej.: temas blues)
+radio <n> / tema <n>     conecta la sugerencia nº n (streaming)
 sugeridos / cola         cambia de vista (también Ctrl+← / Ctrl+→)
 estado                   posición y duración de la pista actual
 ayuda                    muestra esta ayuda
@@ -74,9 +88,10 @@ cargo build --release   # binario ~2,3 MB con LTO y símbolos strip
 ## Estructura
 
 - `src/main.rs` — arranque, escaneo de pistas y modo consola.
-- `src/player.rs` — motor de audio (play/pausa/stop/volumen/seek).
+- `src/player.rs` — motor de audio (play/pausa/stop/volumen/seek/streams).
 - `src/playlist.rs` — cola de reproducción (orden, barajado, repetición).
 - `src/ui.rs` — modelo de vistas, navegación de teclado y TUI.
+- `src/online.rs` — API de radios y archive.org + puente http→rodio.
 - `assets/` — logo y elementos de marca (por incorporar).
 
 ## Hoja de ruta
@@ -85,5 +100,5 @@ cargo build --release   # binario ~2,3 MB con LTO y símbolos strip
 - [x] Fase A: limpieza (rodio 0.23, decoders opt-in, release optimizado)
 - [x] Fase B: playlist (cola, shuffle, repeat, guardar M3U, auto-avance)
 - [x] Fase C: interfaz TUI (ratatui 0.30, vistas Ctrl+flechas)
-- [ ] Fase D: música online gratis (radio-browser.info, Internet Archive)
+- [x] Fase D: música online gratis (radio-browser.info, Internet Archive)
 - [ ] Assets, estilos y temas
