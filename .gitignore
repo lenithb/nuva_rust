@@ -3,6 +3,7 @@
 
 # Configuración local de esta máquina (workaround ALSA con rutas de /tmp)
 .cargo/
+.zed/
 
 # Editor / IDE
 .idea/
