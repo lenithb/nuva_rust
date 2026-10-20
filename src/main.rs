@@ -53,15 +53,18 @@ fn run() -> Result<(), String> {
     }
 
     if cli_mode {
-        run_cli(tracks)
+        run_cli(dir, tracks)
     } else {
-        ui::run_tui(Queue::new(tracks))
+        ui::run_tui(dir.to_owned(), Queue::new(tracks))
     }
 }
 
 /// modo consola clásico (nuva --cli).
-fn run_cli(tracks: Vec<PathBuf>) -> Result<(), String> {
-    println!("nuva — {} pistas (modo consola; la TUI arranca sin --cli)\n", tracks.len());
+fn run_cli(carpeta: &str, tracks: Vec<PathBuf>) -> Result<(), String> {
+    println!(
+        "nuva — {} pistas de {carpeta} (modo consola; la TUI arranca sin --cli)\n",
+        tracks.len()
+    );
     let mut queue = Queue::new(tracks);
     let mut tab = Tab::Playlists;
     print_tab(tab, &queue, &[], &[]);
@@ -100,7 +103,13 @@ fn run_cli(tracks: Vec<PathBuf>) -> Result<(), String> {
         match rx.recv_timeout(POLL) {
             Ok(line) => {
                 if let Some(event) = ui::parse_key_event(&line) {
-                    dispatch_nav(event, &mut tab, &mut queue, &mut player, &mut paused_by_user);
+                    dispatch_nav(
+                        event,
+                        &mut tab,
+                        &mut queue,
+                        &mut player,
+                        &mut paused_by_user,
+                    );
                 } else {
                     quit |= handle_command(
                         &line,
@@ -152,7 +161,9 @@ fn dispatch_nav(
 fn print_tab(tab: Tab, queue: &Queue, radios: &[online::Estacion], temas: &[online::Tema]) {
     match tab {
         Tab::Sugeridos => {
-            println!("Sugeridos (usa: radios <consulta> · temas <consulta> · radio <n> · tema <n>)");
+            println!(
+                "Sugeridos (usa: radios <consulta> · temas <consulta> · radio <n> · tema <n>)"
+            );
             if radios.is_empty() && temas.is_empty() {
                 println!("  (aún sin resultados; prueba: radios lofi)");
             }
@@ -166,7 +177,11 @@ fn print_tab(tab: Tab, queue: &Queue, radios: &[online::Estacion], temas: &[onli
                 );
             }
             for (i, t) in temas.iter().enumerate() {
-                let marca = if t.url.is_some() { "" } else { " (sin mp3 resuelto)" };
+                let marca = if t.url.is_some() {
+                    ""
+                } else {
+                    " (sin mp3 resuelto)"
+                };
                 println!("  {:>2}. {}{}", i + 1, t.titulo, marca);
             }
         }
@@ -333,8 +348,7 @@ fn handle_command(
                     println!("Uso: radio <n>  (n desde 1; busca primero con 'radios')");
                     return false;
                 }
-            })
-            else {
+            }) else {
                 println!("no hay radio nº {arg} en la lista");
                 return false;
             };
@@ -356,7 +370,10 @@ fn handle_command(
                     return false;
                 }
             };
-            let Some((id, titulo, url)) = temas.get(n).map(|t| (t.id.clone(), t.titulo.clone(), t.url.clone())) else {
+            let Some((id, titulo, url)) = temas
+                .get(n)
+                .map(|t| (t.id.clone(), t.titulo.clone(), t.url.clone()))
+            else {
                 println!("no hay tema nº {arg} en la lista");
                 return false;
             };

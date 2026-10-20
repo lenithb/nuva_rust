@@ -30,7 +30,7 @@ Ctrl+→ / Ctrl+←    cambia la vista (Sugeridos ↔ Cola)
 → / ←              pista siguiente / anterior
 Enter              reproduce la pista seleccionada; en Sugeridos conecta el stream
 j / k o ↑ / ↓      navega la lista
-f                  en Sugeridos: alterna radios ↔ temas y rebusca
+f                  en Sugeridos: alterna radios ↔ temas ↔ carpeta local
 t                  alterna el tema: ultra oscuro (#000000) ↔ claro (#ffffff)
 espacio            pausa / reanuda
 a                  alterna barajado

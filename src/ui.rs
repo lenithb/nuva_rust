@@ -163,38 +163,39 @@ impl Tema {
     }
 }
 
-/// fuente de la vista sugeridos.
+/// fuente de la vista sugeridos: dos online y la carpeta local abierta.
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum FuenteSug {
     Radios,
     Temas,
+    Carpeta,
 }
 
 impl FuenteSug {
-    /// altera entre radios y temas.
+    /// cicla radios -> temas -> carpeta.
     fn alterna(self) -> Self {
-        if self == FuenteSug::Radios {
-            FuenteSug::Temas
-        } else {
-            FuenteSug::Radios
+        match self {
+            FuenteSug::Radios => FuenteSug::Temas,
+            FuenteSug::Temas => FuenteSug::Carpeta,
+            FuenteSug::Carpeta => FuenteSug::Radios,
         }
     }
 
     /// consulta por defecto al activar cada fuente.
     fn consulta_default(self) -> &'static str {
-        if self == FuenteSug::Radios {
-            "lofi"
-        } else {
-            "blues"
+        match self {
+            FuenteSug::Radios => "lofi",
+            FuenteSug::Temas => "blues",
+            FuenteSug::Carpeta => "",
         }
     }
 
     /// rótulo legible de la fuente.
     fn texto(self) -> &'static str {
-        if self == FuenteSug::Radios {
-            "radios"
-        } else {
-            "temas cc"
+        match self {
+            FuenteSug::Radios => "radios",
+            FuenteSug::Temas => "temas cc",
+            FuenteSug::Carpeta => "carpeta local",
         }
     }
 }
@@ -223,15 +224,18 @@ impl SugEstado {
         }
     }
 
-    /// selector del listado activo (para limitar j/k).
-    fn total(&self) -> usize {
+    /// selector del listado activo (para limitar j/k); la carpeta
+    /// lista las pistas locales de la cola.
+    fn total(&self, locales: usize) -> usize {
         match self.fuente {
             FuenteSug::Radios => self.radios.len(),
             FuenteSug::Temas => self.temas.len(),
+            FuenteSug::Carpeta => locales,
         }
     }
 
-    /// botón de la lista marcado como stream para conectar.
+    /// botón de la lista marcado como stream para conectar; la
+    /// carpeta no produce streams (la Maneja el Enter del bucle).
     fn eleccion(&self, sel: usize) -> Option<(String, String)> {
         match self.fuente {
             FuenteSug::Radios => self
@@ -242,6 +246,7 @@ impl SugEstado {
                 .temas
                 .get(sel)
                 .and_then(|t| t.url.clone().map(|u| (t.titulo.clone(), u))),
+            FuenteSug::Carpeta => None,
         }
     }
 
@@ -266,8 +271,14 @@ impl SugEstado {
         }
     }
 
-    /// lanza la búsqueda de la fuente activa en un hilo aparte.
+    /// lanza la búsqueda de la fuente activa en un hilo aparte; la
+    /// carpeta local no necesita buscar nada (y suelta la pendiente).
     fn buscar(&mut self) {
+        if self.fuente == FuenteSug::Carpeta {
+            self.err = None;
+            self.rx = None;
+            return;
+        }
         lanzar_busqueda(self.fuente, self.consulta, &mut self.rx, &mut self.err);
     }
 
@@ -319,19 +330,21 @@ const POLL: Duration = Duration::from_millis(120);
 /// saltar pistas.
 const PLAY_GRACE: Duration = Duration::from_millis(500);
 
-/// ejecuta la tui sobre la cola dada. devuelve cuando el usuario sale.
-pub fn run_tui(queue: Queue) -> Result<(), String> {
+/// ejecuta la tui sobre la cola y la carpeta dadas. devuelve cuando
+/// el usuario sale.
+pub fn run_tui(carpeta: String, queue: Queue) -> Result<(), String> {
     // ratatui::init() habilita raw mode + pantalla alternativa y
     // devuelve el defaultterminal ya inicializado.
     let mut terminal = ratatui::init();
     let logo = Logo::cargar();
-    let result = tui_loop(&mut terminal, queue, logo.as_ref());
+    let result = tui_loop(&mut terminal, carpeta, queue, logo.as_ref());
     ratatui::restore();
     result
 }
 
 fn tui_loop(
     terminal: &mut ratatui::DefaultTerminal,
+    carpeta: String,
     mut queue: Queue,
     logo: Option<&Logo>,
 ) -> Result<(), String> {
@@ -399,7 +412,7 @@ fn tui_loop(
                         }
                         (Up, _) | (Char('k'), _) => sel = sel.saturating_sub(1),
                         (Down, _) | (Char('j'), _) => {
-                            if sel + 1 < sug.total() {
+                            if sel + 1 < sug.total(queue.len()) {
                                 sel += 1;
                             }
                         }
@@ -410,9 +423,18 @@ fn tui_loop(
                             sel = 0;
                         }
                         (Enter, _) if tab == self::Tab::Sugeridos => {
-                            // conecta la sugerencia marcada: radio (stream
-                            // continuo) o tema (mp3 remoto ya resuelto).
-                            if let Some((nombre, url)) = sug.eleccion(sel) {
+                            if sug.fuente == FuenteSug::Carpeta {
+                                // la carpeta lista pistas locales: entra
+                                // a la cola y reproduce la marcada.
+                                queue.select(sel);
+                                if let Some(path) = queue.current() {
+                                    paused = false;
+                                    play_now(player, path);
+                                    since_play = Instant::now();
+                                }
+                            } else if let Some((nombre, url)) = sug.eleccion(sel) {
+                                // radio (stream continuo) o tema (mp3
+                                // remoto ya resuelto).
                                 paused = false;
                                 play_stream_now(player, &url, &nombre);
                                 since_play = Instant::now();
@@ -446,7 +468,7 @@ fn tui_loop(
         // dibujo
         terminal
             .draw(|frame| {
-                draw(frame, player, &queue, tab, &mut list_state, sel, &sug, tema, logo)
+                draw(frame, player, carpeta.as_str(), &queue, tab, &mut list_state, sel, &sug, tema, logo)
             })
             .map_err(|e| e.to_string())?;
     }
@@ -519,6 +541,8 @@ fn lanzar_busqueda(
                 let _ = tx.send(r);
             });
         }
+        // la carpeta no se consulta en red (su listado es la cola).
+        FuenteSug::Carpeta => {}
     }
     *sug_rx = Some(rx);
 }
@@ -529,6 +553,7 @@ fn lanzar_busqueda(
 fn draw(
     frame: &mut Frame,
     player: &MusicPlayer,
+    carpeta: &str,
     queue: &Queue,
     tab: Tab,
     list_state: &mut ListState,
@@ -593,7 +618,7 @@ fn draw(
                 .highlight_style(Style::default().bg(pal.texto).fg(pal.fondo));
             frame.render_stateful_widget(list, body, list_state);
         }
-        Tab::Sugeridos => sugeridos(frame, body, list_state, sel, sug, pal),
+        Tab::Sugeridos => sugeridos(frame, body, list_state, sel, sug, carpeta, queue, pal),
     }
 
     // ── barra inferior (now playing) ─────────────────────────────
@@ -653,14 +678,18 @@ fn draw(
     frame.render_widget(Paragraph::new(ayuda), footer);
 }
 
-/// vista de sugerencias: radios (radio-browser) o temas (archive.org).
-/// muestra la lista activa, la carga en curso y el error si lo hubo.
+/// vista de sugerencias: radios (radio-browser), temas (archive.org)
+/// o la carpeta local abierta. muestra la lista activa, la carga en
+/// curso y el error si lo hubo.
+#[allow(clippy::too_many_arguments)]
 fn sugeridos(
     frame: &mut Frame,
     area: ratatui::layout::Rect,
     list_state: &mut ListState,
     sel: usize,
     sug: &SugEstado,
+    carpeta: &str,
+    queue: &Queue,
     pal: Paleta,
 ) {
     let SugEstado {
@@ -694,10 +723,25 @@ fn sugeridos(
                 )))
             })
             .collect(),
+        FuenteSug::Carpeta => queue
+            .iter()
+            .map(|p| {
+                ListItem::new(Line::from(Span::styled(
+                    file_name(p),
+                    Style::default().fg(pal.texto),
+                )))
+            })
+            .collect(),
     };
 
     let total = items.len();
-    let mut lineas_titulo = vec![format!(" Sugeridos — {fuente_txt}: «{consulta}» ")];
+    // la carpeta se anuncia por su ruta; las online por su consulta.
+    let origen = if fuente == &FuenteSug::Carpeta {
+        format!(" Sugeridos — {fuente_txt}: {carpeta} ")
+    } else {
+        format!(" Sugeridos — {fuente_txt}: «{consulta}» ")
+    };
+    let mut lineas_titulo = vec![origen];
     if rx.is_some() {
         lineas_titulo.push(" buscando… ".to_owned());
     }
