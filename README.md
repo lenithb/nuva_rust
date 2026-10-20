@@ -66,7 +66,7 @@ cargo build --release   # binario ~1,9 MB con LTO y símbolos stripping
 
 - [x] Motor de audio
 - [x] Fase A: limpieza (rodio 0.23, decoders opt-in, release optimizado)
-- [ ] Fase B: playlist (cola, shuffle, repeat)
+- [x] Fase B: playlist (cola, shuffle, repeat, guardar M3U, auto-avance)
 - [ ] Fase C: interfaz TUI
 - [ ] Fase D: música online gratis (radio-browser.info, Internet Archive)
 - [ ] Assets, estilos y temas

@@ -25,8 +25,9 @@ pub struct MusicPlayer {
 impl MusicPlayer {
     /// Crea el reproductor y abre el dispositivo de audio por defecto.
     pub fn new() -> Result<Self, String> {
-        let device = DeviceSinkBuilder::open_default_sink()
+        let mut device = DeviceSinkBuilder::open_default_sink()
             .map_err(|e| format!("no se pudo abrir el dispositivo de audio: {e}"))?;
+        device.log_on_drop(false);
         let player = Player::connect_new(device.mixer());
         Ok(Self {
             _device: device,
