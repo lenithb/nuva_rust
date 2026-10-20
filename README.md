@@ -1,6 +1,18 @@
-# reproductor-rust
+<div align="center">
 
-Reproductor de música por consola escrito en Rust con [`rodio`](https://crates.io/crates/rodio).
+# 🌒 nuva
+
+Reproductor de música ligero para la terminal.
+
+</div>
+
+## Filosofía
+
+- **Ligero por diseño**: streaming desde disco — un archivo nunca se carga
+  completo en RAM (la memoria es plana aunque la pista dure horas).
+- **Dependencias mínimas**: motor de audio con solo los decoders que se usan
+  (`mp3`, `flac`, `vorbis`, `wav`); nada de subsistemas que no se usan.
+- **Terminal-first**: toda la funcionalidad accesible por teclado.
 
 ## Uso
 
@@ -9,7 +21,7 @@ cargo run                       # escanea el directorio actual
 cargo run -- /ruta/a/musica     # escanea el directorio indicado
 ```
 
-Busca archivos `.mp3`, `.wav`, `.flac`, `.ogg`, `.oga` y `.m4a` y muestra un menú:
+Busca archivos `.mp3`, `.wav`, `.flac`, `.ogg` y `.oga` y muestra un menú:
 
 ```
 Comandos:
@@ -30,22 +42,31 @@ Comandos:
 
 ## Requisitos del sistema
 
-En Linux, `rodio`/`cpal` requiere la librería ALSA:
+En Linux, el audio usa ALSA vía `cpal`:
 
-- **Con sudo (recomendado):**
-  ```sh
-  sudo apt-get install libasound2-dev
-  ```
-  (`pkg-config` la detectará automáticamente.)
+```sh
+sudo apt-get install libasound2-dev   # Debian/Ubuntu
+sudo dnf install alsa-lib-devel       # Fedora
+```
 
-- **Sin sudo (workaround actual):** la configuración en
-  `.cargo/config.toml` apunta `PKG_CONFIG_PATH` a una copia de la
-  librería extraída del `.deb` en disco temporal. Nota: esa copia no
-  sobrevive a un reinicio; si desaparece, instala `libasound2-dev`
-  o repite la extracción (el README del proyecto incluye el detalle).
+## Compilación
+
+```sh
+cargo build --release   # binario ~1,9 MB con LTO y símbolos stripping
+```
 
 ## Estructura
 
 - `src/main.rs` — escaneo de pistas, menú y comandos de consola.
 - `src/player.rs` — motor de audio (play/pausa/stop/volumen/seek).
-- `src/playlist.rs`, `src/ui.rs` — módulos reservados para funcionalidad futura.
+- `src/playlist.rs` — *(en desarrollo)* cola, shuffle, repeat.
+- `src/ui.rs` — *(en desarrollo)* interfaz TUI.
+
+## Hoja de ruta
+
+- [x] Motor de audio
+- [x] Fase A: limpieza (rodio 0.23, decoders opt-in, release optimizado)
+- [ ] Fase B: playlist (cola, shuffle, repeat)
+- [ ] Fase C: interfaz TUI
+- [ ] Fase D: música online gratis (radio-browser.info, Internet Archive)
+- [ ] Assets, estilos y temas

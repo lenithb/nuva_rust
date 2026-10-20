@@ -17,7 +17,7 @@ use std::time::Duration;
 use player::MusicPlayer;
 
 /// extensiones de audio soportadas por rodio (decoder default).
-const AUDIO_EXTS: [&str; 6] = ["mp3", "wav", "flac", "ogg", "oga", "m4a"];
+const AUDIO_EXTS: [&str; 5] = ["mp3", "wav", "flac", "ogg", "oga"];
 
 fn main() {
     if let Err(err) = run() {

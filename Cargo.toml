@@ -1,8 +1,29 @@
+# nuva — reproductor de música ligero
+#
+# Filosofía: streaming desde disco (nada se carga entero en RAM),
+# dependencias mínimas y terminal-first.
+
 [package]
-name = "reproductor-rust"
-version = "0.1.0"
+name = "nuva"
+version = "0.2.0"
 edition = "2021"
+description = "Reproductor de música ligero para la terminal"
+license = "MIT"
 
 [dependencies]
-rodio = "0.18"  # compatibilidad
-hound = "3.5"   # opcional pero maneja mejor .wav
+# Motor de audio. Sin decoders por defecto: solo los formatos que usamos,
+# para no arrastrar symphonia-aac/isomp4 (mp4/M4A) ni el subsistema de
+# grabación (recording + rtrb).
+rodio = { version = "0.23", default-features = false, features = [
+  "playback",
+  "mp3",
+  "flac",
+  "vorbis",
+  "wav",
+] }
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+strip = "symbols"
