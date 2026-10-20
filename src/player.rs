@@ -1,8 +1,8 @@
-//! Motor de reproducción de audio basado en `rodio`.
+//! motor de reproducción de audio basado en `rodio`.
 //!
-//! Todo el audio se decodifica **en streaming** desde disco: nunca se
-//! carga un archivo completo en RAM (la memoria es plana aunque la
-//! pista dure horas). En rodio 0.23 el sink de bajo nivel es
+//! todo el audio se decodifica **en streaming** desde disco: nunca se
+//! carga un archivo completo en ram (la memoria es plana aunque la
+//! pista dure horas). en rodio 0.23 el sink de bajo nivel es
 //! `DeviceSinkBuilder` (maneja el dispositivo) y `Player` (la cola).
 
 use std::fs::File;
@@ -11,10 +11,10 @@ use std::time::Duration;
 
 use rodio::{Decoder, DeviceSinkBuilder, MixerDeviceSink, Player, Source};
 
-/// Reproductor de audio con controles básicos (play/pausa/stop/volumen/seek).
+///reproductor de audio con controles básicos (play/pausa/stop/volumen/seek).
 pub struct MusicPlayer {
-    /// El dispositivo deja de sonar si esto se descarta, así que vive
-    /// junto al reproductor.
+    ///el dispositivo deja de sonar si esto se descarta, así que vive
+    ///junto al reproductor.
     _device: MixerDeviceSink,
     player: Player,
     current: Option<PathBuf>,
@@ -23,7 +23,7 @@ pub struct MusicPlayer {
 }
 
 impl MusicPlayer {
-    /// Crea el reproductor y abre el dispositivo de audio por defecto.
+    ///crea el reproductor y abre el dispositivo de audio por defecto.
     pub fn new() -> Result<Self, String> {
         let mut device = DeviceSinkBuilder::open_default_sink()
             .map_err(|e| format!("no se pudo abrir el dispositivo de audio: {e}"))?;
@@ -38,7 +38,7 @@ impl MusicPlayer {
         })
     }
 
-    /// Carga y reproduce una pista, deteniendo la anterior.
+    ///carga y reproduce una pista, deteniendo la anterior.
     pub fn play(&mut self, path: &Path) -> Result<(), String> {
         let file =
             File::open(path).map_err(|e| format!("no se pudo abrir {:?}: {e}", path.display()))?;
@@ -54,17 +54,17 @@ impl MusicPlayer {
         Ok(())
     }
 
-    /// Pausa la reproducción.
+    ///pausa la reproducción.
     pub fn pause(&self) {
         self.player.pause();
     }
 
-    /// Reanuda la reproducción.
+    ///reanuda la reproducción.
     pub fn resume(&self) {
         self.player.play();
     }
 
-    /// Alterna pausa/reanudación.
+    ///alterna pausa/reanudación.
     pub fn toggle(&mut self) {
         if self.player.is_paused() {
             self.resume();
@@ -73,7 +73,7 @@ impl MusicPlayer {
         }
     }
 
-    /// Detiene la reproducción y descarga la pista actual.
+    ///detiene la reproducción y descarga la pista actual.
     pub fn stop(&mut self) {
         self.player.stop();
         self.player.clear();
@@ -81,12 +81,12 @@ impl MusicPlayer {
         self.current_duration = None;
     }
 
-    /// Salta a una posición absoluta de la pista.
+    ///salta a una posición absoluta de la pista.
     pub fn seek(&self, position: Duration) {
         let _ = self.player.try_seek(position);
     }
 
-    /// Ajusta el volumen (0.0–1.0) conservando el estado de reproducción.
+    ///ajusta el volumen (0.0–1.0) conservando el estado de reproducción.
     pub fn set_volume(&mut self, volume: f32) {
         self.volume = volume.clamp(0.0, 1.0);
         self.player.set_volume(self.volume);
@@ -96,17 +96,17 @@ impl MusicPlayer {
         self.volume
     }
 
-    /// Ruta de la pista cargada, si la hay.
+    ///ruta de la pista cargada, si la hay.
     pub fn current(&self) -> Option<&Path> {
         self.current.as_deref()
     }
 
-    /// Duración total de la pista cargada (según el decodificador).
+    ///duración total de la pista cargada (según el decodificador).
     pub fn duration(&self) -> Option<Duration> {
         self.current_duration
     }
 
-    /// Posición actual de reproducción (0 si no hay pista cargada).
+    ///posición actual de reproducción (0 si no hay pista cargada).
     pub fn position(&self) -> Duration {
         if self.current.is_none() {
             return Duration::ZERO;
@@ -118,7 +118,7 @@ impl MusicPlayer {
         self.player.is_paused()
     }
 
-    /// Devuelve true si la pista cargada ya terminó de sonar.
+    ///devuelve true si la pista cargada ya terminó de sonar.
     pub fn is_finished(&self) -> bool {
         self.player.empty()
     }

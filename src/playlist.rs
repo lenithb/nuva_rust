@@ -1,31 +1,31 @@
-//! Cola de reproducción de nuva.
+//! cola de reproducción de nuva.
 //!
-//! Independiente del UI y del motor de audio: solo rutas y orden.
-//! El orden canónico es el de `tracks`; `order` es la permutación
+//! independiente del ui y del motor de audio: solo rutas y orden.
+//! el orden canónico es el de `tracks`; `order` es la permutación
 //! activa (identidad o barajada) y `pos` la posición actual dentro
 //! de esa permutación.
 
 use std::path::{Path, PathBuf};
 use std::{fs, io::Write};
 
-/// Modo de repetición.
+///modo de repetición.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Repeat {
-    /// Al llegar al fin, se detiene.
+    ///al llegar al fin, se detiene.
     #[default]
     Off,
-    /// Al llegar al fin, vuelve a empezar la cola.
+    ///al llegar al fin, vuelve a empezar la cola.
     All,
-    /// Repite la pista actual indefinidamente.
+    ///repite la pista actual indefinidamente.
     One,
 }
 
-/// Cola de pistas con orden, barajado y repetición.
+///cola de pistas con orden, barajado y repetición.
 pub struct Queue {
     tracks: Vec<PathBuf>,
-    /// Posiciones sobre `tracks` en el orden de reproducción activo.
+    ///posiciones sobre `tracks` en el orden de reproducción activo.
     order: Vec<usize>,
-    /// Índice dentro de `order` de la pista actual (None = nada cargado).
+    ///índice dentro de `order` de la pista actual (none = nada cargado).
     pos: Option<usize>,
     repeat: Repeat,
 }
@@ -52,28 +52,28 @@ impl Queue {
         self.repeat = repeat;
     }
 
-    /// Iterador sobre las pistas en orden canónico (para la vista).
+    ///iterador sobre las pistas en orden canónico (para la vista).
     pub fn iter(&self) -> impl Iterator<Item = &PathBuf> {
         self.tracks.iter()
     }
 
-    /// Indica si el orden activo difiere del canónico.
+    ///indica si el orden activo difiere del canónico.
     pub fn shuffled(&self) -> bool {
         self.order.iter().copied().ne(0..self.tracks.len())
     }
 
-    /// Índice canónico de la pista actual.
+    ///índice canónico de la pista actual.
     pub fn track_index(&self) -> Option<usize> {
         self.pos.map(|p| self.order[p])
     }
 
-    /// Pista según el orden activo, si la posición es válida.
+    ///pista según el orden activo, si la posición es válida.
     pub fn current(&self) -> Option<&Path> {
         let i = self.pos.and_then(|p| self.order.get(p))?;
         Some(&self.tracks[*i])
     }
 
-    /// Salta a una pista por índice canónico (0-based).
+    ///salta a una pista por índice canónico (0-based).
     pub fn select(&mut self, track_index: usize) {
         if track_index < self.tracks.len() {
             if let Some(p) = self.order.iter().position(|&o| o == track_index) {
@@ -82,7 +82,7 @@ impl Queue {
         }
     }
 
-    /// Busca una pista: por número 1-based o por subcadena del nombre.
+    ///busca una pista: por número 1-based o por subcadena del nombre.
     pub fn find_by_name(&self, query: &str) -> Option<usize> {
         if let Ok(n) = query.parse::<usize>() {
             return (n >= 1 && n <= self.len()).then_some(n - 1);
@@ -93,10 +93,10 @@ impl Queue {
             .position(|p| file_name(p).to_lowercase().contains(&q))
     }
 
-    /// Pista siguiente según el orden y el modo de repetición.
+    ///pista siguiente según el orden y el modo de repetición.
     ///
-    /// Devuelve `None` al terminar la cola con `Repeat::Off`.
-    /// Con `Repeat::One` devuelve de nuevo la pista actual.
+    ///devuelve `None` al terminar la cola con `Repeat::Off`.
+    ///con `Repeat::One` devuelve de nuevo la pista actual.
     pub fn next(&mut self) -> Option<&Path> {
         if self.is_empty() {
             return None;
@@ -116,8 +116,8 @@ impl Queue {
         self.current()
     }
 
-    /// Pista anterior; en el inicio, `Repeat::All` la envía a la última,
-    /// el resto se queda en la primera.
+    ///pista anterior; en el inicio, `Repeat::All` la envía a la última,
+    ///el resto se queda en la primera.
     pub fn prev(&mut self) -> Option<&Path> {
         if self.is_empty() {
             return None;
@@ -131,9 +131,9 @@ impl Queue {
         self.current()
     }
 
-    /// Alterna barajado: al activarlo, la pista actual queda primera;
-    /// al desactivarlo, se restaura el orden canónico conservando la
-    /// pista actual.
+    ///alterna barajado: al activarlo, la pista actual queda primera;
+    ///al desactivarlo, se restaura el orden canónico conservando la
+    ///pista actual.
     pub fn toggle_shuffle(&mut self) {
         let track_index = self.track_index().unwrap_or(0);
         if self.shuffled() {
@@ -147,7 +147,7 @@ impl Queue {
         }
     }
 
-    /// Serializa la cola completa (orden canónico) en formato M3U.
+    ///serializa la cola completa (orden canónico) en formato m3u.
     pub fn save_m3u(&self, path: &Path) -> Result<(), String> {
         let mut buf = String::from("#EXTM3U\n");
         for p in &self.tracks {
@@ -171,9 +171,9 @@ pub(crate) fn file_name(p: &Path) -> String {
         .unwrap_or_else(|| p.display().to_string())
 }
 
-/// Fisher e Yates sobre un LCG sembrado con el reloj del sistema: el
-/// barajado no necesita azar criptográfico y así se evita una
-/// dependencia externa.
+///fisher e yates sobre un lcg sembrado con el reloj del sistema: el
+///barajado no necesita azar criptográfico y así se evita una
+///dependencia externa.
 fn shuffle<T>(slice: &mut [T]) {
     let mut seed = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

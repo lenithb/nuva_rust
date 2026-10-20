@@ -1,13 +1,13 @@
 //! nuva — reproductor de música ligero para la consola.
 //!
-//! Uso:
+//! uso:
 //!   nuva                       escanea el directorio actual
 //!   nuva /ruta/a/musica        escanea el directorio indicado
 //!   nuva --cli                 modo consola clásico
 //!
-//! Navegación: Ctrl+izquierda/derecha cambia entre las vistas
-//! (Sugeridos y Cola); izquierda/derecha pasa a la pista
-//! anterior/siguiente. En modo consola lo mismo funciona,
+//! navegación: ctrl+izquierda/derecha cambia entre las vistas
+//! (sugeridos y cola); izquierda/derecha pasa a la pista
+//! anterior/siguiente. en modo consola lo mismo funciona,
 //! además de los comandos `anterior`/`siguiente`.
 
 mod player;
@@ -25,9 +25,9 @@ use player::MusicPlayer;
 use playlist::{Queue, Repeat};
 use ui::{NavEvent, Tab};
 
-/// Extensiones de audio soportadas por rodio (decoders opt-in).
+///extensiones de audio soportadas por rodio (decoders opt-in).
 const AUDIO_EXTS: [&str; 5] = ["mp3", "wav", "flac", "ogg", "oga"];
-/// Intervalo de sondeo del bucle de eventos (auto-avance).
+///intervalo de sondeo del bucle de eventos (auto-avance).
 const POLL: Duration = Duration::from_millis(200);
 
 fn main() {
@@ -58,7 +58,7 @@ fn run() -> Result<(), String> {
     }
 }
 
-/// Modo consola clásico (nuva --cli).
+///modo consola clásico (nuva --cli).
 fn run_cli(tracks: Vec<PathBuf>) -> Result<(), String> {
     println!("nuva — {} pistas (modo consola; la TUI arranca sin --cli)\n", tracks.len());
     let mut queue = Queue::new(tracks);
@@ -78,10 +78,10 @@ fn run_cli(tracks: Vec<PathBuf>) -> Result<(), String> {
     let mut paused_by_user = false;
     let mut quit = false;
 
-    // Bucle de eventos: la entrada se lee en un hilo aparte y este
-    // bucle sondea cada POLL ms para avanzar pistas al terminar.
+    // bucle de eventos: la entrada se lee en un hilo aparte y este
+    // bucle sondea cada poll ms para avanzar pistas al terminar.
     loop {
-        // Auto-avance cuando la pista terminó (salvo pausa del usuario).
+        // auto-avance cuando la pista terminó (salvo pausa del usuario).
         if !paused_by_user && player.current().is_some() && player.is_finished() {
             match queue.next() {
                 Some(path) => play_now(&mut player, path),
@@ -141,7 +141,7 @@ fn dispatch_nav(
     }
 }
 
-/// Encabezado de la vista activa.
+///encabezado de la vista activa.
 fn print_tab(tab: Tab, queue: &Queue) {
     match tab {
         Tab::Sugeridos => println!("Sugeridos (próximamente: radio-browser.info / archive.org)"),
@@ -154,7 +154,7 @@ fn print_tab(tab: Tab, queue: &Queue) {
     }
 }
 
-/// Reproduce por ruta e informa el título.
+///reproduce por ruta e informa el título.
 fn play_now(player: &mut MusicPlayer, path: &Path) {
     match player.play(path) {
         Ok(()) => println!("♪ Reproduciendo: {}", file_name(path)),
@@ -162,7 +162,7 @@ fn play_now(player: &mut MusicPlayer, path: &Path) {
     }
 }
 
-/// Siguiente/anterior pista (flechas o comandos).
+///siguiente/anterior pista (flechas o comandos).
 fn track_step(player: &mut MusicPlayer, queue: &mut Queue, paused: &mut bool, forward: bool) {
     if queue.is_empty() {
         println!("La cola está vacía.");
@@ -204,7 +204,7 @@ fn file_name(p: &Path) -> String {
         .unwrap_or_else(|| p.display().to_string())
 }
 
-/// Ejecuta un comando por línea; devuelve true si pidió salir.
+///ejecuta un comando por línea; devuelve true si pidió salir.
 fn handle_command(
     line: &str,
     player: &mut MusicPlayer,
@@ -256,7 +256,7 @@ fn handle_command(
             "una" | "one" | "2" => queue.set_repeat(Repeat::One),
             _ => {
                 if arg.is_empty() {
-                    // cicla Off → All → One
+                    // cicla off → all → one
                     let next = match queue.repeat() {
                         Repeat::Off => Repeat::All,
                         Repeat::All => Repeat::One,
@@ -336,7 +336,7 @@ fn handle_command(
     false
 }
 
-/// Interpreta el argumento de "buscar": "90", "2:10", "+15", "-30".
+///interpreta el argumento de "buscar": "90", "2:10", "+15", "-30".
 fn parse_seek(arg: &str, position: Duration) -> Result<Duration, String> {
     let secs: f64 = if let Some(rest) = arg.strip_prefix('+') {
         position.as_secs_f64() + rest.parse::<f64>().map_err(bad_seek)?
@@ -360,7 +360,7 @@ fn bad_seek(_: std::num::ParseFloatError) -> String {
     "formato de tiempo inválido (ejemplos: 90, 2:10, +15, -30)".into()
 }
 
-/// Formato mm:ss (u h:mm:ss si supera una hora).
+///formato mm:ss (u h:mm:ss si supera una hora).
 fn format_hms(d: Duration) -> String {
     let s = d.as_secs();
     if s >= 3600 {

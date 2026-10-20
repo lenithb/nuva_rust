@@ -1,8 +1,8 @@
-//! Interfaz de nuva: modelo de vistas, navegación de teclado y TUI.
+//! interfaz de nuva: modelo de vistas, navegación de teclado y tui.
 //!
-//! El modelo (`Tab`, `NavEvent`, `parse_key_event`) es agnóstico del
-//! renderizador y lo comparten el modo CLI, esta TUI y la futura GUI
-//! (egui). Navegación: Ctrl+izquierda/derecha cambia de vista;
+//! el modelo (`Tab`, `NavEvent`, `parse_key_event`) es agnóstico del
+//! renderizador y lo comparten el modo cli, esta tui y la futura gui
+//! (egui). navegación: ctrl+izquierda/derecha cambia de vista;
 //! izquierda/derecha cambia de pista.
 
 use std::path::Path;
@@ -18,27 +18,27 @@ use ratatui::Frame;
 use crate::player::MusicPlayer;
 use crate::playlist::{Queue, Repeat};
 
-/// Vista principal de la app: pestañas Sugeridos y Cola.
+///vista principal de la app: pestañas sugeridos y cola.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tab {
-    /// Sugerencias online (fase D: radio-browser.info y archive.org).
+    ///sugerencias online (fase d: radio-browser.info y archive.org).
     Sugeridos,
-    /// Biblioteca local en cola de reproducción.
+    ///biblioteca local en cola de reproducción.
     Playlists,
 }
 
 impl Tab {
-    /// Todas las pestañas, en orden de ciclo.
+    ///todas las pestañas, en orden de ciclo.
     pub const fn all() -> [Tab; 2] {
         [Tab::Sugeridos, Tab::Playlists]
     }
 
-    /// Pestaña siguiente (equivale a Ctrl+derecha o `>`).
+    ///pestaña siguiente (equivale a ctrl+derecha o `>`).
     pub fn next(self) -> Self {
         cycle(self, 1)
     }
 
-    /// Pestaña anterior (equivale a Ctrl+izquierda o `<`).
+    ///pestaña anterior (equivale a ctrl+izquierda o `<`).
     pub fn prev(self) -> Self {
         cycle(self, -1)
     }
@@ -51,17 +51,17 @@ fn cycle(from: Tab, step: i32) -> Tab {
     all[((i + step).rem_euclid(len)) as usize]
 }
 
-/// Intervalo de sondeo del teclado en la TUI.
+///intervalo de sondeo del teclado en la tui.
 const POLL: Duration = Duration::from_millis(120);
-/// Justo después de `play()`, `is_finished()` puede devolver true un
-/// instante mientras la cola se prepara; ese margen se ignora para no
-/// saltar pistas.
+///justo después de `play()`, `is_finished()` puede devolver true un
+///instante mientras la cola se prepara; ese margen se ignora para no
+///saltar pistas.
 const PLAY_GRACE: Duration = Duration::from_millis(500);
 
-/// Ejecuta la TUI sobre la cola dada. Devuelve cuando el usuario sale.
+///ejecuta la tui sobre la cola dada. devuelve cuando el usuario sale.
 pub fn run_tui(queue: Queue) -> Result<(), String> {
     // ratatui::init() habilita raw mode + pantalla alternativa y
-    // devuelve el DefaultTerminal ya inicializado.
+    // devuelve el defaultterminal ya inicializado.
     let mut terminal = ratatui::init();
     let result = tui_loop(&mut terminal, queue);
     ratatui::restore();
@@ -76,10 +76,10 @@ fn tui_loop(terminal: &mut ratatui::DefaultTerminal, mut queue: Queue) -> Result
     let mut paused = false;
     let mut since_play = Instant::now();
 
-    // Bucle: sondeo el teclado y, al mismo tiempo, avanzo las pistas
+    // bucle: sondeo el teclado y, al mismo tiempo, avanzo las pistas
     // automáticamente cuando terminan.
     loop {
-        // Auto-avance: la pista cargada terminó y el usuario no pausó.
+        // auto-avance: la pista cargada terminó y el usuario no pausó.
         if !paused
             && player.current().is_some()
             && since_play.elapsed() > PLAY_GRACE
@@ -94,14 +94,14 @@ fn tui_loop(terminal: &mut ratatui::DefaultTerminal, mut queue: Queue) -> Result
             }
         }
 
-        // Eventos de teclado.
+        // eventos de teclado.
         if event::poll(POLL).map_err(|e| e.to_string())? {
             if let event::Event::Key(key) = event::read().map_err(|e| e.to_string())? {
                 if key.kind == event::KeyEventKind::Press {
                     use event::KeyCode::*;
                     match (key.code, key.modifiers) {
                         (Char('q') | Esc, _) => break,
-                        (Char('c'), event::KeyModifiers::CONTROL) => break, // Ctrl+C
+                        (Char('c'), event::KeyModifiers::CONTROL) => break, // ctrl+c
                         (Right, event::KeyModifiers::CONTROL) => tab = tab.next(),
                         (Left, event::KeyModifiers::CONTROL) => tab = tab.prev(),
                         (Right, _) => {
@@ -146,7 +146,7 @@ fn tui_loop(terminal: &mut ratatui::DefaultTerminal, mut queue: Queue) -> Result
             }
         }
 
-        // Dibujo
+        // dibujo
         terminal
             .draw(|frame| draw(frame, player, &queue, tab, &mut list_state, sel))
             .map_err(|e| e.to_string())?;
@@ -156,13 +156,13 @@ fn tui_loop(terminal: &mut ratatui::DefaultTerminal, mut queue: Queue) -> Result
     Ok(())
 }
 
-/// Reproduce una pista; si falla, se ignora el error por ahora
-/// (la futura GUI mostrará un aviso en pantalla).
+///reproduce una pista; si falla, se ignora el error por ahora
+///(la futura gui mostrará un aviso en pantalla).
 fn play_now(player: &mut MusicPlayer, path: &Path) {
     let _ = player.play(path);
 }
 
-/// Cambia de pista usando la cola (flechas ←/→).
+///cambia de pista usando la cola (flechas ←/→).
 fn track_step(
     player: &mut MusicPlayer,
     queue: &mut Queue,
@@ -178,18 +178,18 @@ fn track_step(
     }
 }
 
-/// Logo del encabezado. Por hoy: texto sin asset.
+///logo del encabezado. por hoy: texto sin asset.
 ///
-/// Cuando exista el recurso gráfico (fase de branding): SVG maestro en
-/// `assets/logo.svg` y PNG derivado en `assets/logo.png` para la TUI
-/// (render con ratatui-image), con fallback a este texto en
-/// terminales sin soporte de gráficos.
+///cuando exista el recurso gráfico (fase de branding): svg maestro en
+///`assets/logo.svg` y png derivado en `assets/logo.png` para la tui
+///(render con ratatui-image), con fallback a este texto en
+///terminales sin soporte de gráficos.
 fn header_logo() -> Span<'static> {
     Span::styled("nuva", Style::default().fg(Color::Magenta))
 }
 
-/// Dibuja el frame completo: header (pestañas), cuerpo (vista) y barra
-/// inferior de estado (Now Playing).
+///dibuja el frame completo: header (pestañas), cuerpo (vista) y barra
+///inferior de estado (now playing).
 fn draw(
     frame: &mut Frame,
     player: &MusicPlayer,
@@ -205,7 +205,7 @@ fn draw(
     ])
     .areas(frame.area());
 
-    // ── Header ───────────────────────────────────────────────────
+    // ── header ───────────────────────────────────────────────────
     let tabs = Tab::all()
         .iter()
         .map(|t| {
@@ -225,7 +225,7 @@ fn draw(
     let title = Line::from(header_logo()).centered();
     frame.render_widget(Paragraph::new(vec![title, tabs]), header);
 
-    // ── Cuerpo según pestaña ─────────────────────────────────────
+    // ── cuerpo según pestaña ─────────────────────────────────────
     match tab {
         Tab::Playlists => {
             let items: Vec<_> = queue.iter().map(|p| ListItem::new(file_name(p))).collect();
@@ -246,7 +246,7 @@ fn draw(
         Tab::Sugeridos => sugeridos(frame, body),
     }
 
-    // ── Barra inferior (Now Playing) ─────────────────────────────
+    // ── barra inferior (now playing) ─────────────────────────────
     let [gauge_area, footer] =
         Layout::vertical([Constraint::Length(3), Constraint::Length(1)]).areas(status);
 
@@ -297,7 +297,7 @@ fn draw(
         .percent(pct);
     frame.render_widget(gauge, gauge_area);
 
-    // Pie con los atajos principales.
+    // pie con los atajos principales.
     let ayuda = Line::from(Span::styled(
         "→/← pista · espacio pausa · a aleatorio · r repetir · +/- volumen · s detener · q salir",
         Style::default().fg(Color::DarkGray),
@@ -306,7 +306,7 @@ fn draw(
     frame.render_widget(Paragraph::new(ayuda), footer);
 }
 
-/// Placeholder de sugeridos hasta conectar la API (fase D).
+///placeholder de sugeridos hasta conectar la api (fase d).
 fn sugeridos(frame: &mut Frame, area: ratatui::layout::Rect) {
     let block = Block::bordered()
         .padding(Padding::horizontal(2))
@@ -352,7 +352,7 @@ fn file_name(p: &Path) -> String {
         .unwrap_or_else(|| p.display().to_string())
 }
 
-/// Formato mm:ss (u h:mm:ss si supera una hora).
+///formato mm:ss (u h:mm:ss si supera una hora).
 fn format_hms(d: Duration) -> String {
     let s = d.as_secs();
     if s >= 3600 {
@@ -362,26 +362,26 @@ fn format_hms(d: Duration) -> String {
     }
 }
 
-/// Eventos de alto nivel que emite la navegación de teclado.
+///eventos de alto nivel que emite la navegación de teclado.
 ///
-/// El CLI los detecta vía `parse_key_event`; la TUI los mapea
-/// directamente de crossterm. La GUI (egui) seguirá este modelo.
+///el cli los detecta vía `parse_key_event`; la tui los mapea
+///directamente de crossterm. la gui (egui) seguirá este modelo.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NavEvent {
-    /// Ctrl+Right (o Ctrl+">"): vista siguiente.
+    ///ctrl+right (o ctrl+">"): vista siguiente.
     NextTab,
-    /// Ctrl+Left (o Ctrl+"<"): vista anterior.
+    ///ctrl+left (o ctrl+"<"): vista anterior.
     PrevTab,
-    /// Right: pista siguiente.
+    ///right: pista siguiente.
     NextTrack,
-    /// Left: pista anterior.
+    ///left: pista anterior.
     PrevTrack,
 }
 
-/// Traduce una línea cruda del terminal (modo CLI) a un evento de
-/// navegación. En modo canónico las secuencias llegan como líneas:
-///   `ESC[1;5C` = Ctrl+Right, `ESC[1;5D` = Ctrl+Left,
-///   `ESC[C` = Right, `ESC[D` = Left.
+///traduce una línea cruda del terminal (modo cli) a un evento de
+///navegación. en modo canónico las secuencias llegan como líneas:
+///`ESC[1;5C` = ctrl+right, `ESC[1;5D` = ctrl+left,
+///`ESC[C` = right, `ESC[D` = left.
 pub fn parse_key_event(line: &str) -> Option<NavEvent> {
     match line {
         "\u{1b}[1;5C" | "\u{1b}OC" => Some(NavEvent::NextTab),
