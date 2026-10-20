@@ -1,11 +1,11 @@
 # assets — branding de nuva
 
-Lugar del logo y demás elementos visuales.
+Logo y demás elementos visuales.
 
-## Convenciones (fase de branding)
+## Archivos
 
-- `logo.svg` — maestro vectorial (fuente de verdad; nítido en la GUI).
-- `logo.png` — derivado a 256px, para la TUI vía `ratatui-image`
-  (fallback a texto en terminales sin soporte de gráficos).
-- Colores base de la marca: violeta/magenta sobre fondo oscuro
-  (coincide con el tema de la TUI).
+- `nuva.svg` — maestro vectorial (fuente de verdad; nítido en la GUI).
+- `nuva1.svg` — variante cuadrada apilada (nv/va) del mismo logo.
+- `logo.png` — versión monocroma ya recortada, reescalada y binarizada
+  (480×183, ~1 KB) para dibujar en la TUI con bloques de medio paso;
+  se incrusta en el binario y se tiñe según el tema activo.
