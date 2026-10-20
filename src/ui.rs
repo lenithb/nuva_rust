@@ -20,80 +20,73 @@ use crate::online::{self, Estacion, Tema as TemaOnline};
 use crate::player::MusicPlayer;
 use crate::playlist::{Queue, Repeat};
 
-/// logo del header: luminancias del png ya recortadas de margen, para
-/// pintarlo con bloques de medio paso y los colores del tema.
+/// logo de marca de agua: png binario (ya recortado y con el trazo
+/// ensanchado al generarlo) listo para pintarlo con bloques de medio paso.
 struct Logo {
     brillos: image::GrayImage,
 }
 
 impl Logo {
-    /// carga el asset una sola vez; si falla, la tui usa el texto.
+    /// carga el asset una sola vez; si falla, la tui queda sin marca.
     fn cargar() -> Option<Self> {
-        let img = image::load_from_memory(include_bytes!("../assets/nuva.png"))
+        let img = image::load_from_memory(include_bytes!("../assets/logo.png"))
             .ok()?
             .to_luma8();
-        Some(Self { brillos: recortar_margen(img, 16) })
+        Some(Self { brillos: img })
+    }
+
+    /// tamaño del dibujo.
+    fn tamano(&self) -> (u32, u32) {
+        (self.brillos.width(), self.brillos.height())
     }
 }
 
-
-/// recorta el fondo negro alrededor del dibujo (el asset tiene mucho
-/// margen) para que encaje bien en el header.
-fn recortar_margen(img: image::GrayImage, umbral: u8) -> image::GrayImage {
-    let mut x0 = img.width();
-    let mut y0 = img.height();
-    let mut x1 = 0u32;
-    let mut y1 = 0u32;
-    for (x, y, p) in img.enumerate_pixels() {
-        if p[0] > umbral {
-            x0 = x0.min(x);
-            y0 = y0.min(y);
-            x1 = x1.max(x);
-            y1 = y1.max(y);
-        }
-    }
-    if x1 <= x0 || y1 <= y0 {
-        return img;
-    }
-    image::imageops::crop(&mut img.to_owned(), x0, y0, x1 - x0 + 1, y1 - y0 + 1).to_image()
-}
-
-/// pinta el logo en la zona dada: dos pixeles por celda con el bloque
-/// de medio paso; la tinta toma el color del texto del tema, así el
-/// logo se invierte solo al cambiar entre oscuro y claro.
-fn pintar_logo(frame: &mut Frame, zona: Rect, logo: &Logo, pal: &Paleta) {
-    if zona.width == 0 || zona.height == 0 {
+/// marca de agua del cuerpo: el logo centrado en la zona con la tinta
+/// en el tono atenuado del tema; las listas y el gauge dibujan encima.
+fn fondo_logo(frame: &mut Frame, zona: Rect, logo: &Logo, pal: &Paleta) {
+    let (ancho, alto) = logo.tamano();
+    if zona.width < 20 || zona.height < 4 || ancho == 0 || alto == 0 {
         return;
     }
-    // escala al ancho completo de la zona (y hasta el doble de px por
-    // la altura de celda); lanczos y la dilatacion evitan que el trazo
-    // fino del logotipo se esfume a esta escala.
+
+    // encaja el aspecto del logo en la zona (una celda = 2 pixeles de
+    // alto) limitando el ancho a 2/3 para que no sature la vista.
+    let ratio = ancho as f64 / alto as f64;
+    let cols = (zona.width as u32 * 2 / 3).max(20).min(zona.width as u32);
+    let filas = (cols as f64 / (2.0 * ratio)).floor() as u16;
+    let filas = filas.clamp(1, zona.height);
+    let dest = Rect::new(
+        zona.x + (zona.width - cols as u16) / 2,
+        zona.y + (zona.height - filas) / 2,
+        cols as u16,
+        filas,
+    );
+
+    // lanczos y dilatacion: sin ellos el trazo fino se esfuma.
     let mut escala = image::imageops::resize(
         &logo.brillos,
-        zona.width as u32,
-        zona.height as u32 * 2,
+        dest.width as u32,
+        dest.height as u32 * 2,
         image::imageops::FilterType::Lanczos3,
     );
-    let gorda = escala.clone();
-    dilata(&gorda, &mut escala, 1);
+    dilata(&escala.clone(), &mut escala, 1);
 
-    for fila in 0..zona.height {
-        let mut spans = Vec::with_capacity(zona.width as usize);
-        for col in 0..zona.width as u32 {
+    for fila in 0..dest.height {
+        let mut spans = Vec::with_capacity(dest.width as usize);
+        for col in 0..dest.width as u32 {
             let lums = (
                 escala[(col, fila as u32 * 2)][0],
                 escala[(col, fila as u32 * 2 + 1)][0],
             );
-            spans.push(Span::styled(
-                "▀",
-                Style::default()
-                    .fg(if lums.0 > 127 { pal.texto } else { pal.fondo })
-                    .bg(if lums.1 > 127 { pal.texto } else { pal.fondo }),
-            ));
+            // tinta en tono atenuado: sutil bajo las listas y legible
+            // en ambos temas (gris oscuro sobre negro y sobre blanco).
+            let tinta = if lums.0 > 127 { pal.atenuado } else { pal.fondo };
+            let suelo = if lums.1 > 127 { pal.atenuado } else { pal.fondo };
+            spans.push(Span::styled("▀", Style::default().fg(tinta).bg(suelo)));
         }
         frame.render_widget(
             Paragraph::new(Line::from(spans)),
-            Rect::new(zona.x, zona.y + fila, zona.width, 1),
+            Rect::new(dest.x, dest.y + fila, dest.width, 1),
         );
     }
 }
@@ -550,15 +543,12 @@ fn draw(
     logo: Option<&Logo>,
 ) {
     let pal = tema.paleta();
-    let area_total = frame.area();
-    // el header grande con logo solo si hay sitio de sobra para la lista.
-    let logo_visible = logo.is_some() && area_total.width >= 50 && area_total.height >= 18;
 
     // fondo del tema en toda la pantalla (el resto dibuja encima).
     frame.render_widget(Block::new().style(Style::default().bg(pal.fondo)), frame.area());
 
     let [header, body, status] = Layout::vertical([
-        Constraint::Length(if logo_visible { 9 } else { 3 }),
+        Constraint::Length(3),
         Constraint::Min(0),
         Constraint::Length(4),
     ])
@@ -581,17 +571,14 @@ fn draw(
         .collect::<Line>()
         .centered();
 
-    // con logo: tiras de bloques arriba y pestañas debajo; sin logo:
-    // el texto «nuva» como antes.
-    if logo_visible {
-        let Some(logo) = logo else { return };
-        let [zona_logo, zona_tabs] = Layout::vertical([Constraint::Length(8), Constraint::Length(1)])
-            .areas(header);
-        pintar_logo(frame, zona_logo, logo, &pal);
-        frame.render_widget(Paragraph::new(tabs), zona_tabs);
-    } else {
-        let title = Line::from(header_logo(&pal)).centered();
-        frame.render_widget(Paragraph::new(vec![title, tabs]), header);
+    let title = Line::from(header_logo(&pal)).centered();
+    frame.render_widget(Paragraph::new(vec![title, tabs]), header);
+
+    // marca de agua: zona del cuerpo y de reproducción, bajo las
+    // listas y el gauge.
+    let zona_fondo = Rect::new(body.x, body.y, body.width, frame.area().height - body.y);
+    if let Some(logo) = logo {
+        fondo_logo(frame, zona_fondo, logo, &pal);
     }
 
     // ── cuerpo según pestaña ─────────────────────────────────────

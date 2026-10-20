@@ -93,8 +93,8 @@ cargo build --release   # binario ~2,3 MB con LTO y símbolos strip
 - `src/playlist.rs` — cola de reproducción (orden, barajado, repetición).
 - `src/ui.rs` — modelo de vistas, navegación de teclado y TUI.
 - `src/online.rs` — API de radios y archive.org + puente http→rodio.
-- `assets/` — logo del header (`nuva.png`, dibujado en bloques de medio
-  paso y teñido por el tema: se invierte solo al cambiar oscuro/claro).
+- `assets/` — logo (svg maestro + png compacto incrustado en el binario,
+  pintado como marca de agua del cuerpo y teñido por el tema).
 
 ## Hoja de ruta
 
@@ -104,4 +104,4 @@ cargo build --release   # binario ~2,3 MB con LTO y símbolos strip
 - [x] Fase C: interfaz TUI (ratatui 0.30, vistas Ctrl+flechas)
 - [x] Fase D: música online gratis (radio-browser.info, Internet Archive)
 - [x] Temas: ultra oscuro (`#000000` + blanco) y claro (`#ffffff` + negro)
-- [x] Logo en el header (invertido según el tema)
+- [x] Logo como marca de agua (png compacto, invertido según el tema)
