@@ -7,14 +7,6 @@
 
 Reproductor de música ligero para la terminal.
 
-<p align="center">
-  <img src="assets/capturas/cola-oscuro.png" width="49%" alt="cola, tema oscuro">
-  <img src="assets/capturas/sugeridos-oscuro.png" width="49%" alt="sugeridos (carpeta local), tema oscuro">
-  <br>
-  <img src="assets/capturas/cola-claro.png" width="49%" alt="cola, tema claro">
-  <img src="assets/capturas/sugeridos-claro.png" width="49%" alt="sugeridos (carpeta local), tema claro">
-</p>
-
 </div>
 
 ## Filosofía
@@ -105,8 +97,7 @@ cargo build --release   # binario ~2,3 MB con LTO y símbolos strip
 - `src/ui.rs` — modelo de vistas, navegación de teclado y TUI.
 - `src/online.rs` — API de radios y archive.org + puente http→rodio.
 - `assets/` — logo (svg maestro + png compacto incrustado en el binario,
-  pintado como marca de agua del cuerpo y teñido por el tema) y las
-  capturas de la TUI que se muestran arriba.
+  pintado como marca de agua del cuerpo y teñido por el tema).
 
 ## Hoja de ruta
 
