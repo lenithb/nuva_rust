@@ -169,6 +169,16 @@ fn track_step(
     }
 }
 
+/// Logo del header. Por hoy: texto (el emoji luna como placeholder).
+///
+/// Cuando exista el asset real (fase de branding): SVG maestro en
+/// `assets/logo.svg` + PNG derivado en `assets/logo.png` para la TUI
+/// (render con `ratatui-image`, con fallback a este texto en
+/// terminales sin soporte de gráficos).
+fn header_logo() -> Span<'static> {
+    Span::styled("🌒 nuva", Style::default().fg(Color::Magenta))
+}
+
 /// Dibuja el frame completo: header (pestañas), cuerpo (vista) y barra
 /// inferior de estado (Now Playing).
 fn draw(
@@ -200,8 +210,7 @@ fn draw(
         .collect::<Line>()
         .centered();
 
-    let title = Line::from(Span::styled("🌒 nuva", Style::default().fg(Color::Magenta)))
-        .centered();
+    let title = Line::from(header_logo()).centered();
     frame.render_widget(
         Paragraph::new(vec![title, tabs]),
         header,
