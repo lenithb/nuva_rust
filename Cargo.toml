@@ -22,6 +22,10 @@ rodio = { version = "0.23", default-features = false, features = [
   "wav",
 ] }
 
+# Interfaz TUI (ratatui 0.30 + backend crossterm 0.29, sin extras).
+ratatui = "0.30.2"
+crossterm = "0.29"
+
 [profile.release]
 opt-level = 3
 lto = "fat"

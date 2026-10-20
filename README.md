@@ -19,9 +19,25 @@ Reproductor de música ligero para la terminal.
 ```sh
 cargo run                       # escanea el directorio actual
 cargo run -- /ruta/a/musica     # escanea el directorio indicado
+cargo run -- /ruta --cli        # modo consola clásico
 ```
 
-Busca archivos `.mp3`, `.wav`, `.flac`, `.ogg` y `.oga` y muestra un menú:
+### TUI (por defecto)
+
+```
+Ctrl+→ / Ctrl+←    cambia la vista (Sugeridos ↔ Cola)
+→ / ←              pista siguiente / anterior
+⏎                  reproduce la pista seleccionada
+j / k o ↑ / ↓      navega la lista
+espacio            pausa / reanuda
+a                  alterna barajado
+r                  cicla repetición (off → todas → una)
++ / -              volumen ±5%
+s                  detener
+q / Esc            salir
+```
+
+### Modo consola (`--cli`)
 
 ```
 Comandos:
@@ -67,6 +83,6 @@ cargo build --release   # binario ~1,9 MB con LTO y símbolos stripping
 - [x] Motor de audio
 - [x] Fase A: limpieza (rodio 0.23, decoders opt-in, release optimizado)
 - [x] Fase B: playlist (cola, shuffle, repeat, guardar M3U, auto-avance)
-- [ ] Fase C: interfaz TUI
+- [x] Fase C: interfaz TUI (ratatui 0.30, vistas Ctrl+flechas)
 - [ ] Fase D: música online gratis (radio-browser.info, Internet Archive)
 - [ ] Assets, estilos y temas

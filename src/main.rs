@@ -36,8 +36,10 @@ fn main() {
 }
 
 fn run() -> Result<(), String> {
-    let dir = env::args().nth(1).unwrap_or_else(|| ".".into());
-    let tracks = scan_dir(Path::new(&dir))?;
+    let args: Vec<String> = env::args().skip(1).collect();
+    let cli_mode = args.iter().any(|a| a == "--cli");
+    let dir = args.first().map(String::as_str).unwrap_or(".");
+    let tracks = scan_dir(Path::new(dir))?;
 
     if tracks.is_empty() {
         return Err(format!(
@@ -47,7 +49,16 @@ fn run() -> Result<(), String> {
         ));
     }
 
-    println!("🌒 nuva — {} pistas en {:?}", tracks.len(), dir);
+    if cli_mode {
+        run_cli(tracks)
+    } else {
+        ui::run_tui(Queue::new(tracks))
+    }
+}
+
+/// Modo consola clásico (nuva --cli).
+fn run_cli(tracks: Vec<PathBuf>) -> Result<(), String> {
+    println!("🌒 nuva — {} pistas (modo consola; pásate a la TUI sin --cli)\n", tracks.len());
     let mut queue = Queue::new(tracks);
     let mut tab = Tab::Playlists;
     print_tab(tab, &queue);

@@ -52,6 +52,11 @@ impl Queue {
         self.repeat = repeat;
     }
 
+    /// Iterador sobre las pistas en orden canónico (para la vista).
+    pub fn iter(&self) -> impl Iterator<Item = &PathBuf> {
+        self.tracks.iter()
+    }
+
     /// true si el orden activo difiere del canónico.
     pub fn shuffled(&self) -> bool {
         self.order.iter().copied().ne(0..self.tracks.len())
@@ -160,7 +165,7 @@ impl Queue {
     }
 }
 
-fn file_name(p: &Path) -> String {
+pub(crate) fn file_name(p: &Path) -> String {
     p.file_name()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_else(|| p.display().to_string())
