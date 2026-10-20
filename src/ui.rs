@@ -10,7 +10,7 @@ use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use ratatui::crossterm::event;
-use ratatui::layout::{Constraint, Layout};
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Gauge, List, ListItem, ListState, Paragraph};
@@ -19,6 +19,103 @@ use ratatui::Frame;
 use crate::online::{self, Estacion, Tema as TemaOnline};
 use crate::player::MusicPlayer;
 use crate::playlist::{Queue, Repeat};
+
+/// logo del header: luminancias del png ya recortadas de margen, para
+/// pintarlo con bloques de medio paso y los colores del tema.
+struct Logo {
+    brillos: image::GrayImage,
+}
+
+impl Logo {
+    /// carga el asset una sola vez; si falla, la tui usa el texto.
+    fn cargar() -> Option<Self> {
+        let img = image::load_from_memory(include_bytes!("../assets/nuva.png"))
+            .ok()?
+            .to_luma8();
+        Some(Self { brillos: recortar_margen(img, 16) })
+    }
+}
+
+
+/// recorta el fondo negro alrededor del dibujo (el asset tiene mucho
+/// margen) para que encaje bien en el header.
+fn recortar_margen(img: image::GrayImage, umbral: u8) -> image::GrayImage {
+    let mut x0 = img.width();
+    let mut y0 = img.height();
+    let mut x1 = 0u32;
+    let mut y1 = 0u32;
+    for (x, y, p) in img.enumerate_pixels() {
+        if p[0] > umbral {
+            x0 = x0.min(x);
+            y0 = y0.min(y);
+            x1 = x1.max(x);
+            y1 = y1.max(y);
+        }
+    }
+    if x1 <= x0 || y1 <= y0 {
+        return img;
+    }
+    image::imageops::crop(&mut img.to_owned(), x0, y0, x1 - x0 + 1, y1 - y0 + 1).to_image()
+}
+
+/// pinta el logo en la zona dada: dos pixeles por celda con el bloque
+/// de medio paso; la tinta toma el color del texto del tema, así el
+/// logo se invierte solo al cambiar entre oscuro y claro.
+fn pintar_logo(frame: &mut Frame, zona: Rect, logo: &Logo, pal: &Paleta) {
+    if zona.width == 0 || zona.height == 0 {
+        return;
+    }
+    // escala al ancho completo de la zona (y hasta el doble de px por
+    // la altura de celda); lanczos y la dilatacion evitan que el trazo
+    // fino del logotipo se esfume a esta escala.
+    let mut escala = image::imageops::resize(
+        &logo.brillos,
+        zona.width as u32,
+        zona.height as u32 * 2,
+        image::imageops::FilterType::Lanczos3,
+    );
+    let gorda = escala.clone();
+    dilata(&gorda, &mut escala, 1);
+
+    for fila in 0..zona.height {
+        let mut spans = Vec::with_capacity(zona.width as usize);
+        for col in 0..zona.width as u32 {
+            let lums = (
+                escala[(col, fila as u32 * 2)][0],
+                escala[(col, fila as u32 * 2 + 1)][0],
+            );
+            spans.push(Span::styled(
+                "▀",
+                Style::default()
+                    .fg(if lums.0 > 127 { pal.texto } else { pal.fondo })
+                    .bg(if lums.1 > 127 { pal.texto } else { pal.fondo }),
+            ));
+        }
+        frame.render_widget(
+            Paragraph::new(Line::from(spans)),
+            Rect::new(zona.x, zona.y + fila, zona.width, 1),
+        );
+    }
+}
+
+/// max de la vecindad en un radio dado (ensancha el trazo).
+fn dilata(src: &image::GrayImage, dst: &mut image::GrayImage, radio: u32) {
+    let (w, h) = (src.width(), src.height());
+    for y in 0..h {
+        for x in 0..w {
+            let mut v = 0u8;
+            for dy in -(radio as i64)..=(radio as i64) {
+                for dx in -(radio as i64)..=(radio as i64) {
+                    let (xx, yy) = (x as i64 + dx, y as i64 + dy);
+                    if xx >= 0 && yy >= 0 && (xx as u32) < w && (yy as u32) < h {
+                        v = v.max(src[(xx as u32, yy as u32)][0]);
+                    }
+                }
+            }
+            dst[(x, y)] = image::Luma([v]);
+        }
+    }
+}
 
 /// mensaje que regresa del hilo de búsqueda online.
 enum SugBuf {
@@ -234,12 +331,17 @@ pub fn run_tui(queue: Queue) -> Result<(), String> {
     // ratatui::init() habilita raw mode + pantalla alternativa y
     // devuelve el defaultterminal ya inicializado.
     let mut terminal = ratatui::init();
-    let result = tui_loop(&mut terminal, queue);
+    let logo = Logo::cargar();
+    let result = tui_loop(&mut terminal, queue, logo.as_ref());
     ratatui::restore();
     result
 }
 
-fn tui_loop(terminal: &mut ratatui::DefaultTerminal, mut queue: Queue) -> Result<(), String> {
+fn tui_loop(
+    terminal: &mut ratatui::DefaultTerminal,
+    mut queue: Queue,
+    logo: Option<&Logo>,
+) -> Result<(), String> {
     let player = &mut MusicPlayer::new()?;
     let mut list_state = ListState::default();
     let mut tab = Tab::Sugeridos;
@@ -350,7 +452,9 @@ fn tui_loop(terminal: &mut ratatui::DefaultTerminal, mut queue: Queue) -> Result
 
         // dibujo
         terminal
-            .draw(|frame| draw(frame, player, &queue, tab, &mut list_state, sel, &sug, tema))
+            .draw(|frame| {
+                draw(frame, player, &queue, tab, &mut list_state, sel, &sug, tema, logo)
+            })
             .map_err(|e| e.to_string())?;
     }
 
@@ -443,14 +547,18 @@ fn draw(
     sel: usize,
     sug: &SugEstado,
     tema: Tema,
+    logo: Option<&Logo>,
 ) {
     let pal = tema.paleta();
+    let area_total = frame.area();
+    // el header grande con logo solo si hay sitio de sobra para la lista.
+    let logo_visible = logo.is_some() && area_total.width >= 50 && area_total.height >= 18;
 
     // fondo del tema en toda la pantalla (el resto dibuja encima).
     frame.render_widget(Block::new().style(Style::default().bg(pal.fondo)), frame.area());
 
     let [header, body, status] = Layout::vertical([
-        Constraint::Length(3),
+        Constraint::Length(if logo_visible { 9 } else { 3 }),
         Constraint::Min(0),
         Constraint::Length(4),
     ])
@@ -473,8 +581,18 @@ fn draw(
         .collect::<Line>()
         .centered();
 
-    let title = Line::from(header_logo(&pal)).centered();
-    frame.render_widget(Paragraph::new(vec![title, tabs]), header);
+    // con logo: tiras de bloques arriba y pestañas debajo; sin logo:
+    // el texto «nuva» como antes.
+    if logo_visible {
+        let Some(logo) = logo else { return };
+        let [zona_logo, zona_tabs] = Layout::vertical([Constraint::Length(8), Constraint::Length(1)])
+            .areas(header);
+        pintar_logo(frame, zona_logo, logo, &pal);
+        frame.render_widget(Paragraph::new(tabs), zona_tabs);
+    } else {
+        let title = Line::from(header_logo(&pal)).centered();
+        frame.render_widget(Paragraph::new(vec![title, tabs]), header);
+    }
 
     // ── cuerpo según pestaña ─────────────────────────────────────
     match tab {

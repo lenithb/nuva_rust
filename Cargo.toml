@@ -34,6 +34,9 @@ reqwest = { version = "0.12", default-features = false, features = [
 ] }
 serde_json = "1"
 
+# solo para leer el logo png del header, sin extras.
+image = { version = "0.25", default-features = false, features = ["png"] }
+
 [profile.release]
 opt-level = 3
 lto = "fat"
