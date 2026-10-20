@@ -6,39 +6,164 @@
 //! izquierda/derecha cambia de pista.
 
 use std::path::Path;
+use std::sync::mpsc::{self, Receiver};
 use std::time::{Duration, Instant};
 
 use ratatui::crossterm::event;
 use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, Gauge, List, ListItem, ListState, Padding, Paragraph};
+use ratatui::widgets::{Block, Gauge, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
+use crate::online::{self, Estacion, Tema};
 use crate::player::MusicPlayer;
 use crate::playlist::{Queue, Repeat};
 
-///vista principal de la app: pestañas sugeridos y cola.
+/// mensaje que regresa del hilo de búsqueda online.
+enum SugBuf {
+    Radios(Vec<Estacion>),
+    Temas(Vec<Tema>),
+    Error(String),
+}
+
+/// fuente de la vista sugeridos.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum FuenteSug {
+    Radios,
+    Temas,
+}
+
+impl FuenteSug {
+    /// altera entre radios y temas.
+    fn alterna(self) -> Self {
+        if self == FuenteSug::Radios {
+            FuenteSug::Temas
+        } else {
+            FuenteSug::Radios
+        }
+    }
+
+    /// consulta por defecto al activar cada fuente.
+    fn consulta_default(self) -> &'static str {
+        if self == FuenteSug::Radios {
+            "lofi"
+        } else {
+            "blues"
+        }
+    }
+
+    /// rótulo legible de la fuente.
+    fn texto(self) -> &'static str {
+        if self == FuenteSug::Radios {
+            "radios"
+        } else {
+            "temas cc"
+        }
+    }
+}
+
+/// estado completo de la vista sugeridos: fuente activa, listados,
+/// búsqueda en curso y último error.
+struct SugEstado {
+    fuente: FuenteSug,
+    consulta: &'static str,
+    radios: Vec<Estacion>,
+    temas: Vec<Tema>,
+    rx: Option<Receiver<SugBuf>>,
+    err: Option<String>,
+}
+
+impl SugEstado {
+    /// estado inicial: radios sobre la consulta por defecto.
+    fn nueva() -> Self {
+        Self {
+            fuente: FuenteSug::Radios,
+            consulta: "lofi",
+            radios: Vec::new(),
+            temas: Vec::new(),
+            rx: None,
+            err: None,
+        }
+    }
+
+    /// selector del listado activo (para limitar j/k).
+    fn total(&self) -> usize {
+        match self.fuente {
+            FuenteSug::Radios => self.radios.len(),
+            FuenteSug::Temas => self.temas.len(),
+        }
+    }
+
+    /// botón de la lista marcado como stream para conectar.
+    fn eleccion(&self, sel: usize) -> Option<(String, String)> {
+        match self.fuente {
+            FuenteSug::Radios => self
+                .radios
+                .get(sel)
+                .map(|e| (e.nombre.clone(), e.url.clone())),
+            FuenteSug::Temas => self
+                .temas
+                .get(sel)
+                .and_then(|t| t.url.clone().map(|u| (t.titulo.clone(), u))),
+        }
+    }
+
+    /// recibe (sin bloquear) el resultado de la búsqueda pendiente.
+    fn recibe(&mut self) {
+        let Some(rx) = &self.rx else { return };
+        match rx.try_recv() {
+            Ok(SugBuf::Radios(rs)) => {
+                self.radios = rs;
+                self.rx = None;
+            }
+            Ok(SugBuf::Temas(ts)) => {
+                self.temas = ts;
+                self.rx = None;
+            }
+            Ok(SugBuf::Error(e)) => {
+                self.err = Some(e);
+                self.rx = None;
+            }
+            Err(mpsc::TryRecvError::Empty) => {}
+            Err(mpsc::TryRecvError::Disconnected) => self.rx = None,
+        }
+    }
+
+    /// lanza la búsqueda de la fuente activa en un hilo aparte.
+    fn buscar(&mut self) {
+        lanzar_busqueda(self.fuente, self.consulta, &mut self.rx, &mut self.err);
+    }
+
+    /// alterna la fuente y reconsulta con el término por defecto.
+    fn alterna_fuente(&mut self) {
+        self.fuente = self.fuente.alterna();
+        self.consulta = self.fuente.consulta_default();
+        self.buscar();
+    }
+}
+
+/// vista principal de la app: pestañas sugeridos y cola.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tab {
-    ///sugerencias online (fase d: radio-browser.info y archive.org).
+    /// sugerencias online (fase d: radio-browser.info y archive.org).
     Sugeridos,
-    ///biblioteca local en cola de reproducción.
+    /// biblioteca local en cola de reproducción.
     Playlists,
 }
 
 impl Tab {
-    ///todas las pestañas, en orden de ciclo.
+    /// todas las pestañas, en orden de ciclo.
     pub const fn all() -> [Tab; 2] {
         [Tab::Sugeridos, Tab::Playlists]
     }
 
-    ///pestaña siguiente (equivale a ctrl+derecha o `>`).
+    /// pestaña siguiente (equivale a ctrl+derecha o `>`).
     pub fn next(self) -> Self {
         cycle(self, 1)
     }
 
-    ///pestaña anterior (equivale a ctrl+izquierda o `<`).
+    /// pestaña anterior (equivale a ctrl+izquierda o `<`).
     pub fn prev(self) -> Self {
         cycle(self, -1)
     }
@@ -51,14 +176,14 @@ fn cycle(from: Tab, step: i32) -> Tab {
     all[((i + step).rem_euclid(len)) as usize]
 }
 
-///intervalo de sondeo del teclado en la tui.
+/// intervalo de sondeo del teclado en la tui.
 const POLL: Duration = Duration::from_millis(120);
-///justo después de `play()`, `is_finished()` puede devolver true un
-///instante mientras la cola se prepara; ese margen se ignora para no
-///saltar pistas.
+/// justo después de `play()`, `is_finished()` puede devolver true un
+/// instante mientras la cola se prepara; ese margen se ignora para no
+/// saltar pistas.
 const PLAY_GRACE: Duration = Duration::from_millis(500);
 
-///ejecuta la tui sobre la cola dada. devuelve cuando el usuario sale.
+/// ejecuta la tui sobre la cola dada. devuelve cuando el usuario sale.
 pub fn run_tui(queue: Queue) -> Result<(), String> {
     // ratatui::init() habilita raw mode + pantalla alternativa y
     // devuelve el defaultterminal ya inicializado.
@@ -71,14 +196,22 @@ pub fn run_tui(queue: Queue) -> Result<(), String> {
 fn tui_loop(terminal: &mut ratatui::DefaultTerminal, mut queue: Queue) -> Result<(), String> {
     let player = &mut MusicPlayer::new()?;
     let mut list_state = ListState::default();
-    let mut tab = Tab::Playlists;
+    let mut tab = Tab::Sugeridos;
     let mut sel = 0usize;
     let mut paused = false;
     let mut since_play = Instant::now();
 
+    // estado de la vista sugeridos (fase d); la primera entrada a la
+    // vista dispara la búsqueda inicial.
+    let mut sug = SugEstado::nueva();
+    sug.buscar();
+
     // bucle: sondeo el teclado y, al mismo tiempo, avanzo las pistas
     // automáticamente cuando terminan.
     loop {
+        // recibo del hilo online (si hay búsqueda en curso).
+        sug.recibe();
+
         // auto-avance: la pista cargada terminó y el usuario no pausó.
         if !paused
             && player.current().is_some()
@@ -102,8 +235,16 @@ fn tui_loop(terminal: &mut ratatui::DefaultTerminal, mut queue: Queue) -> Result
                     match (key.code, key.modifiers) {
                         (Char('q') | Esc, _) => break,
                         (Char('c'), event::KeyModifiers::CONTROL) => break, // ctrl+c
-                        (Right, event::KeyModifiers::CONTROL) => tab = tab.next(),
-                        (Left, event::KeyModifiers::CONTROL) => tab = tab.prev(),
+                        (Right, event::KeyModifiers::CONTROL) => {
+                            tab = tab.next();
+                            sel = 0;
+                            list_state.select(Some(0));
+                        }
+                        (Left, event::KeyModifiers::CONTROL) => {
+                            tab = tab.prev();
+                            sel = 0;
+                            list_state.select(Some(0));
+                        }
                         (Right, _) => {
                             track_step(player, &mut queue, &mut paused, true, &mut since_play)
                         }
@@ -116,8 +257,22 @@ fn tui_loop(terminal: &mut ratatui::DefaultTerminal, mut queue: Queue) -> Result
                         }
                         (Up, _) | (Char('k'), _) => sel = sel.saturating_sub(1),
                         (Down, _) | (Char('j'), _) => {
-                            if sel + 1 < queue.len() {
+                            if sel + 1 < sug.total() {
                                 sel += 1;
+                            }
+                        }
+                        (Char('a'), _) => queue.toggle_shuffle(),
+                        (Char('f'), _) => {
+                            sug.alterna_fuente();
+                            sel = 0;
+                        }
+                        (Enter, _) if tab == self::Tab::Sugeridos => {
+                            // conecta la sugerencia marcada: radio (stream
+                            // continuo) o tema (mp3 remoto ya resuelto).
+                            if let Some((nombre, url)) = sug.eleccion(sel) {
+                                paused = false;
+                                play_stream_now(player, &url, &nombre);
+                                since_play = Instant::now();
                             }
                         }
                         (Enter, _) => {
@@ -128,7 +283,6 @@ fn tui_loop(terminal: &mut ratatui::DefaultTerminal, mut queue: Queue) -> Result
                                 since_play = Instant::now();
                             }
                         }
-                        (Char('a'), _) => queue.toggle_shuffle(),
                         (Char('r'), _) => {
                             let next = match queue.repeat() {
                                 Repeat::Off => Repeat::All,
@@ -148,7 +302,7 @@ fn tui_loop(terminal: &mut ratatui::DefaultTerminal, mut queue: Queue) -> Result
 
         // dibujo
         terminal
-            .draw(|frame| draw(frame, player, &queue, tab, &mut list_state, sel))
+            .draw(|frame| draw(frame, player, &queue, tab, &mut list_state, sel, &sug))
             .map_err(|e| e.to_string())?;
     }
 
@@ -156,13 +310,13 @@ fn tui_loop(terminal: &mut ratatui::DefaultTerminal, mut queue: Queue) -> Result
     Ok(())
 }
 
-///reproduce una pista; si falla, se ignora el error por ahora
-///(la futura gui mostrará un aviso en pantalla).
+/// reproduce una pista; si falla, se ignora el error por ahora
+/// (la futura gui mostrará un aviso en pantalla).
 fn play_now(player: &mut MusicPlayer, path: &Path) {
     let _ = player.play(path);
 }
 
-///cambia de pista usando la cola (flechas ←/→).
+/// cambia de pista usando la cola (flechas ←/→).
 fn track_step(
     player: &mut MusicPlayer,
     queue: &mut Queue,
@@ -178,18 +332,63 @@ fn track_step(
     }
 }
 
-///logo del encabezado. por hoy: texto sin asset.
-///
-///cuando exista el recurso gráfico (fase de branding): svg maestro en
-///`assets/logo.svg` y png derivado en `assets/logo.png` para la tui
-///(render con ratatui-image), con fallback a este texto en
-///terminales sin soporte de gráficos.
+/// conecta un stream online (radio o tema remoto).
+fn play_stream_now(player: &mut MusicPlayer, url: &str, nombre: &str) {
+    let _ = player.play_stream(url, nombre);
+}
+
+/// lanza la búsqueda online en un hilo aparte para no bloquear la tui;
+/// el resultado llega por canal y el bucle lo recibe sin bloquear.
+fn lanzar_busqueda(
+    fuente: FuenteSug,
+    consulta: &str,
+    sug_rx: &mut Option<Receiver<SugBuf>>,
+    sug_err: &mut Option<String>,
+) {
+    if sug_rx.is_some() {
+        return; // ya hay una búsqueda en curso
+    }
+    *sug_err = None;
+    let (tx, rx) = mpsc::channel();
+    let q = consulta.to_owned();
+    match fuente {
+        FuenteSug::Radios => {
+            std::thread::spawn(move || {
+                let r = online::buscar_radios(&q, 24)
+                    .map(SugBuf::Radios)
+                    .unwrap_or_else(SugBuf::Error);
+                let _ = tx.send(r);
+            });
+        }
+        FuenteSug::Temas => {
+            std::thread::spawn(move || {
+                let r = online::buscar_temas(&q, 12)
+                    .and_then(|mut ts| {
+                        for t in &mut ts {
+                            t.url = Some(online::resolver_tema(&t.id)?);
+                        }
+                        Ok(ts)
+                    })
+                    .map(SugBuf::Temas)
+                    .unwrap_or_else(SugBuf::Error);
+                let _ = tx.send(r);
+            });
+        }
+    }
+    *sug_rx = Some(rx);
+}
+
+/// logo del encabezado. por hoy: texto sin asset.
+/// cuando exista el recurso gráfico (fase de branding): svg maestro en
+/// `assets/logo.svg` y png derivado en `assets/logo.png` para la tui
+/// (render con ratatui-image), con fallback a este texto en
+/// terminales sin soporte de gráficos.
 fn header_logo() -> Span<'static> {
     Span::styled("nuva", Style::default().fg(Color::Magenta))
 }
 
-///dibuja el frame completo: header (pestañas), cuerpo (vista) y barra
-///inferior de estado (now playing).
+/// dibuja el frame completo: header (pestañas), cuerpo (vista) y barra
+/// inferior de estado (now playing).
 fn draw(
     frame: &mut Frame,
     player: &MusicPlayer,
@@ -197,6 +396,7 @@ fn draw(
     tab: Tab,
     list_state: &mut ListState,
     sel: usize,
+    sug: &SugEstado,
 ) {
     let [header, body, status] = Layout::vertical([
         Constraint::Length(3),
@@ -243,18 +443,15 @@ fn draw(
                 .highlight_style(Style::default().bg(Color::Indexed(234)).fg(Color::Magenta));
             frame.render_stateful_widget(list, body, list_state);
         }
-        Tab::Sugeridos => sugeridos(frame, body),
+        Tab::Sugeridos => sugeridos(frame, body, list_state, sel, sug),
     }
 
     // ── barra inferior (now playing) ─────────────────────────────
     let [gauge_area, footer] =
         Layout::vertical([Constraint::Length(3), Constraint::Length(1)]).areas(status);
 
-    let now = player
-        .current()
-        .map(crate::playlist::file_name)
-        .unwrap_or_else(|| "nada en reproducción".into());
-    let state = if player.current().is_none() {
+    let now = player.titulo();
+    let state = if player.current().is_none() && player.stream_name().is_none() {
         "⏹"
     } else if player.is_paused() {
         "⏸"
@@ -275,12 +472,16 @@ fn draw(
         ),
     ]);
 
-    let dur = player.duration().unwrap_or(Duration::from_secs(1));
+    let dur = player.duration();
     let pos = player.position();
-    let pct = if dur.is_zero() {
-        0
-    } else {
-        (pos.as_secs_f64() / dur.as_secs_f64() * 100.0).clamp(0.0, 100.0) as u16
+    // los streams online no tienen duración conocida: la barra muestra
+    // el tiempo de conexión y el rótulo "en vivo" en vez de un avance.
+    let (pct, etiqueta) = match dur {
+        Some(d) if !d.is_zero() => (
+            (pos.as_secs_f64() / d.as_secs_f64() * 100.0).clamp(0.0, 100.0) as u16,
+            format!("{} / {}", format_hms(pos), format_hms(d)),
+        ),
+        _ => (0, format!("{} · en vivo", format_hms(pos))),
     };
     let gauge = Gauge::default()
         .block(
@@ -289,61 +490,96 @@ fn draw(
                 .title(info_line),
         )
         .gauge_style(Style::default().fg(Color::Magenta))
-        .label(format!(
-            "{} / {}",
-            format_hms(pos),
-            format_hms(player.duration().unwrap_or_default())
-        ))
+        .label(etiqueta)
         .percent(pct);
     frame.render_widget(gauge, gauge_area);
 
     // pie con los atajos principales.
     let ayuda = Line::from(Span::styled(
-        "→/← pista · espacio pausa · a aleatorio · r repetir · +/- volumen · s detener · q salir",
+        "→/← pista · espacio pausa · f fuente sugeridos · a aleatorio · r repetir · +/- volumen · s detener · q salir",
         Style::default().fg(Color::DarkGray),
     ))
     .centered();
     frame.render_widget(Paragraph::new(ayuda), footer);
 }
 
-///placeholder de sugeridos hasta conectar la api (fase d).
-fn sugeridos(frame: &mut Frame, area: ratatui::layout::Rect) {
-    let block = Block::bordered()
-        .padding(Padding::horizontal(2))
-        .title(Span::styled(
-            " Sugeridos ",
-            Style::default().fg(Color::Magenta),
-        ))
-        .border_style(Style::default().fg(Color::DarkGray));
-    let plain = Style::default().fg(Color::Gray);
-    frame.render_widget(
-        Paragraph::new(vec![
-            Line::from(Span::styled(
-                "Muy pronto: sugerencias en vivo.",
-                plain,
-            )),
-            Line::default(),
-            Line::from(Span::styled(
-                "· radio-browser.info — radios sin clave API (streaming directo)",
-                plain,
-            )),
-            Line::from(Span::styled(
-                "· archive.org — música CC / dominio público a la carta",
-                plain,
-            )),
-            Line::from(Span::styled(
-                "· MusicBrainz — metadatos y carátulas sin API key",
-                plain,
-            )),
-            Line::default(),
-            Line::from(Span::styled(
-                "Ctrl+→ para ver tu Cola mientras tanto",
-                Style::default().fg(Color::Magenta),
-            )),
-        ])
-        .block(block),
-        area,
-    );
+/// vista de sugerencias: radios (radio-browser) o temas (archive.org).
+/// muestra la lista activa, la carga en curso y el error si lo hubo.
+fn sugeridos(
+    frame: &mut Frame,
+    area: ratatui::layout::Rect,
+    list_state: &mut ListState,
+    sel: usize,
+    sug: &SugEstado,
+) {
+    let SugEstado {
+        fuente,
+        consulta,
+        radios,
+        temas,
+        rx,
+        err,
+    } = sug;
+    let fuente_txt = fuente.texto();
+    let items: Vec<ListItem> = match fuente {
+        FuenteSug::Radios => radios
+            .iter()
+            .map(|e| {
+                ListItem::new(Line::from(vec![
+                    Span::styled(e.nombre.clone(), Style::default().fg(Color::Gray)),
+                    Span::styled(
+                        format!("  · {} kbps {}", e.bitrate, e.codec.to_lowercase()),
+                        Style::default().fg(Color::DarkGray),
+                    ),
+                ]))
+            })
+            .collect(),
+        FuenteSug::Temas => temas
+            .iter()
+            .map(|t| {
+                ListItem::new(Line::from(Span::styled(
+                    t.titulo.clone(),
+                    Style::default().fg(Color::Gray),
+                )))
+            })
+            .collect(),
+    };
+
+    let total = items.len();
+    let mut lineas_titulo = vec![format!(" Sugeridos — {fuente_txt}: «{consulta}» ")];
+    if rx.is_some() {
+        lineas_titulo.push(" buscando… ".to_owned());
+    }
+    if let Some(e) = err {
+        lineas_titulo.push(format!(" ! {e} "));
+    }
+
+    let mut list = List::new(items)
+        .block(
+            Block::bordered()
+                .title(Span::styled(
+                    lineas_titulo.join("·"),
+                    Style::default().fg(Color::Magenta),
+                ))
+                .title_bottom(Span::styled(
+                    " f alterna la fuente · Enter conecta ",
+                    Style::default().fg(Color::DarkGray),
+                ))
+                .border_style(Style::default().fg(Color::DarkGray)),
+        )
+        .highlight_symbol("▶ ")
+        .highlight_style(Style::default().bg(Color::Indexed(234)).fg(Color::Magenta));
+
+    if total == 0 && rx.is_none() && err.is_none() {
+        // sin datos todavía: mensaje de bienvenida interno de la vista.
+        list = List::new(vec![ListItem::new(Line::from(Span::styled(
+            "sin sugerencias; pulsa f para recargar",
+            Style::default().fg(Color::DarkGray),
+        )))]);
+    } else {
+        list_state.select(Some(sel.clamp(0, total.saturating_sub(1))));
+    }
+    frame.render_stateful_widget(list, area, list_state);
 }
 
 fn file_name(p: &Path) -> String {
@@ -352,7 +588,7 @@ fn file_name(p: &Path) -> String {
         .unwrap_or_else(|| p.display().to_string())
 }
 
-///formato mm:ss (u h:mm:ss si supera una hora).
+/// formato mm:ss (u h:mm:ss si supera una hora).
 fn format_hms(d: Duration) -> String {
     let s = d.as_secs();
     if s >= 3600 {
@@ -362,26 +598,25 @@ fn format_hms(d: Duration) -> String {
     }
 }
 
-///eventos de alto nivel que emite la navegación de teclado.
-///
-///el cli los detecta vía `parse_key_event`; la tui los mapea
-///directamente de crossterm. la gui (egui) seguirá este modelo.
+/// eventos de alto nivel que emite la navegación de teclado.
+/// ///el cli los detecta vía `parse_key_event`; la tui los mapea
+/// directamente de crossterm. la gui (egui) seguirá este modelo.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum NavEvent {
-    ///ctrl+right (o ctrl+">"): vista siguiente.
+    /// ctrl+right (o ctrl+">"): vista siguiente.
     NextTab,
-    ///ctrl+left (o ctrl+"<"): vista anterior.
+    /// ctrl+left (o ctrl+"<"): vista anterior.
     PrevTab,
-    ///right: pista siguiente.
+    /// right: pista siguiente.
     NextTrack,
-    ///left: pista anterior.
+    /// left: pista anterior.
     PrevTrack,
 }
 
-///traduce una línea cruda del terminal (modo cli) a un evento de
-///navegación. en modo canónico las secuencias llegan como líneas:
-///`ESC[1;5C` = ctrl+right, `ESC[1;5D` = ctrl+left,
-///`ESC[C` = right, `ESC[D` = left.
+/// traduce una línea cruda del terminal (modo cli) a un evento de
+/// navegación. en modo canónico las secuencias llegan como líneas:
+/// `ESC[1;5C` = ctrl+right, `ESC[1;5D` = ctrl+left,
+/// `ESC[C` = right, `ESC[D` = left.
 pub fn parse_key_event(line: &str) -> Option<NavEvent> {
     match line {
         "\u{1b}[1;5C" | "\u{1b}OC" => Some(NavEvent::NextTab),
