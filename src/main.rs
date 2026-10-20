@@ -17,7 +17,7 @@ mod ui;
 
 use std::collections::BTreeSet;
 use std::env;
-use std::io::{self, BufRead};
+use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc;
 use std::time::Duration;
@@ -39,6 +39,11 @@ fn main() {
 }
 
 fn run() -> Result<(), String> {
+    // el título de la ventana del terminal dice "nuva" mientras corre
+    // el programa, tanto en la tui como en modo consola.
+    print!("\x1b]2;nuva\x07");
+    io::stdout().flush().map_err(|e| e.to_string())?;
+
     let args: Vec<String> = env::args().skip(1).collect();
     let cli_mode = args.iter().any(|a| a == "--cli");
     let dir = args.first().map(String::as_str).unwrap_or(".");
