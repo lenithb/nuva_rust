@@ -523,11 +523,6 @@ fn lanzar_busqueda(
     *sug_rx = Some(rx);
 }
 
-/// logo del header: el texto «nuva» teñido por el tema.
-fn header_logo(pal: &Paleta) -> Span<'static> {
-    Span::styled("nuva", Style::default().fg(pal.texto))
-}
-
 /// dibuja el frame completo: header (pestañas), cuerpo (vista) y barra
 /// inferior de estado (now playing).
 #[allow(clippy::too_many_arguments)]
@@ -548,7 +543,7 @@ fn draw(
     frame.render_widget(Block::new().style(Style::default().bg(pal.fondo)), frame.area());
 
     let [header, body, status] = Layout::vertical([
-        Constraint::Length(3),
+        Constraint::Length(1),
         Constraint::Min(0),
         Constraint::Length(4),
     ])
@@ -571,8 +566,7 @@ fn draw(
         .collect::<Line>()
         .centered();
 
-    let title = Line::from(header_logo(&pal)).centered();
-    frame.render_widget(Paragraph::new(vec![title, tabs]), header);
+    frame.render_widget(Paragraph::new(tabs), header);
 
     // marca de agua: zona del cuerpo y de reproducción, bajo las
     // listas y el gauge.
