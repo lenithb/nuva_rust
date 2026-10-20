@@ -26,6 +26,14 @@ rodio = { version = "0.23", default-features = false, features = [
 ratatui = "0.30.2"
 crossterm = "0.29"
 
+# cliente http bloqueante para la vista sugeridos (fase d).
+# tls con rustls para no depender de certificados del sistema.
+reqwest = { version = "0.12", default-features = false, features = [
+  "blocking",
+  "rustls-tls-webpki-roots",
+] }
+serde_json = "1"
+
 [profile.release]
 opt-level = 3
 lto = "fat"
