@@ -1,15 +1,16 @@
 //! nuva — reproductor de música ligero para la consola.
 //!
 //! uso:
-//!   nuva                       escanea el directorio actual
-//!   nuva /ruta/a/musica        escanea el directorio indicado
-//!   nuva --cli                 modo consola clásico
+//! nuva                       escanea el directorio actual
+//! nuva /ruta/a/musica        escanea el directorio indicado
+//! nuva --cli                 modo consola clásico
 //!
 //! navegación: ctrl+izquierda/derecha cambia entre las vistas
 //! (sugeridos y cola); izquierda/derecha pasa a la pista
 //! anterior/siguiente. en modo consola lo mismo funciona,
 //! además de los comandos `anterior`/`siguiente`.
 
+mod online;
 mod player;
 mod playlist;
 mod ui;
@@ -25,9 +26,9 @@ use player::MusicPlayer;
 use playlist::{Queue, Repeat};
 use ui::{NavEvent, Tab};
 
-///extensiones de audio soportadas por rodio (decoders opt-in).
+/// extensiones de audio soportadas por rodio (decoders opt-in).
 const AUDIO_EXTS: [&str; 5] = ["mp3", "wav", "flac", "ogg", "oga"];
-///intervalo de sondeo del bucle de eventos (auto-avance).
+/// intervalo de sondeo del bucle de eventos (auto-avance).
 const POLL: Duration = Duration::from_millis(200);
 
 fn main() {
@@ -58,12 +59,16 @@ fn run() -> Result<(), String> {
     }
 }
 
-///modo consola clásico (nuva --cli).
+/// modo consola clásico (nuva --cli).
 fn run_cli(tracks: Vec<PathBuf>) -> Result<(), String> {
     println!("nuva — {} pistas (modo consola; la TUI arranca sin --cli)\n", tracks.len());
     let mut queue = Queue::new(tracks);
     let mut tab = Tab::Playlists;
-    print_tab(tab, &queue);
+    print_tab(tab, &queue, &[], &[]);
+
+    // resultados online de la vista sugeridos (fase d).
+    let mut radios: Vec<online::Estacion> = Vec::new();
+    let mut temas: Vec<online::Tema> = Vec::new();
 
     let (tx, rx) = mpsc::channel::<String>();
     std::thread::spawn(move || {
@@ -103,6 +108,8 @@ fn run_cli(tracks: Vec<PathBuf>) -> Result<(), String> {
                         &mut tab,
                         &mut queue,
                         &mut paused_by_user,
+                        &mut radios,
+                        &mut temas,
                     );
                 }
             }
@@ -130,21 +137,39 @@ fn dispatch_nav(
     match event {
         NavEvent::NextTab => {
             *tab = tab.next();
-            print_tab(*tab, queue);
+            print_tab(*tab, queue, &[], &[]);
         }
         NavEvent::PrevTab => {
             *tab = tab.prev();
-            print_tab(*tab, queue);
+            print_tab(*tab, queue, &[], &[]);
         }
         NavEvent::NextTrack => track_step(player, queue, paused, true),
         NavEvent::PrevTrack => track_step(player, queue, paused, false),
     }
 }
 
-///encabezado de la vista activa.
-fn print_tab(tab: Tab, queue: &Queue) {
+/// encabezado de la vista activa; en sugeridos lista lo ya buscado.
+fn print_tab(tab: Tab, queue: &Queue, radios: &[online::Estacion], temas: &[online::Tema]) {
     match tab {
-        Tab::Sugeridos => println!("Sugeridos (próximamente: radio-browser.info / archive.org)"),
+        Tab::Sugeridos => {
+            println!("Sugeridos (usa: radios <consulta> · temas <consulta> · radio <n> · tema <n>)");
+            if radios.is_empty() && temas.is_empty() {
+                println!("  (aún sin resultados; prueba: radios lofi)");
+            }
+            for (i, e) in radios.iter().enumerate() {
+                println!(
+                    "  {:>2}. {} — {} kbps {}",
+                    i + 1,
+                    e.nombre,
+                    e.bitrate,
+                    e.codec.to_lowercase()
+                );
+            }
+            for (i, t) in temas.iter().enumerate() {
+                let marca = if t.url.is_some() { "" } else { " (sin mp3 resuelto)" };
+                println!("  {:>2}. {}{}", i + 1, t.titulo, marca);
+            }
+        }
         Tab::Playlists => println!(
             "Cola ({} pistas, repetición: {:?}, barajado: {})",
             queue.len(),
@@ -154,7 +179,7 @@ fn print_tab(tab: Tab, queue: &Queue) {
     }
 }
 
-///reproduce por ruta e informa el título.
+/// reproduce por ruta e informa el título.
 fn play_now(player: &mut MusicPlayer, path: &Path) {
     match player.play(path) {
         Ok(()) => println!("♪ Reproduciendo: {}", file_name(path)),
@@ -162,7 +187,7 @@ fn play_now(player: &mut MusicPlayer, path: &Path) {
     }
 }
 
-///siguiente/anterior pista (flechas o comandos).
+/// siguiente/anterior pista (flechas o comandos).
 fn track_step(player: &mut MusicPlayer, queue: &mut Queue, paused: &mut bool, forward: bool) {
     if queue.is_empty() {
         println!("La cola está vacía.");
@@ -204,13 +229,16 @@ fn file_name(p: &Path) -> String {
         .unwrap_or_else(|| p.display().to_string())
 }
 
-///ejecuta un comando por línea; devuelve true si pidió salir.
+/// ejecuta un comando por línea; devuelve true si pidió salir.
+#[allow(clippy::too_many_arguments)]
 fn handle_command(
     line: &str,
     player: &mut MusicPlayer,
     tab: &mut Tab,
     queue: &mut Queue,
     paused_by_user: &mut bool,
+    radios: &mut Vec<online::Estacion>,
+    temas: &mut Vec<online::Tema>,
 ) -> bool {
     let mut parts = line.splitn(2, char::is_whitespace);
     let cmd = parts.next().unwrap_or_default();
@@ -273,36 +301,118 @@ fn handle_command(
             Ok(()) => println!("Cola guardada en {arg}"),
             Err(e) => println!("{e}"),
         },
+        // ── sugeridos online (fase d) ────────────────────────────────
+        "radios" => {
+            let consulta = if arg.is_empty() { "lofi" } else { arg };
+            println!("buscando radios «{consulta}»…");
+            match online::buscar_radios(consulta, 24) {
+                Ok(rs) => {
+                    *radios = rs;
+                    *tab = Tab::Sugeridos;
+                    print_tab(*tab, queue, radios, temas);
+                }
+                Err(e) => println!("{e}"),
+            }
+        }
+        "temas" => {
+            let consulta = if arg.is_empty() { "blues" } else { arg };
+            println!("buscando temas «{consulta}»…");
+            match online::buscar_temas(consulta, 12) {
+                Ok(ts) => {
+                    *temas = ts;
+                    *tab = Tab::Sugeridos;
+                    print_tab(*tab, queue, radios, temas);
+                }
+                Err(e) => println!("{e}"),
+            }
+        }
+        "radio" => {
+            let Some(e) = radios.get(match arg.parse::<usize>() {
+                Ok(n) if n >= 1 => n - 1,
+                _ => {
+                    println!("Uso: radio <n>  (n desde 1; busca primero con 'radios')");
+                    return false;
+                }
+            })
+            else {
+                println!("no hay radio nº {arg} en la lista");
+                return false;
+            };
+            let (nombre, url) = (e.nombre.clone(), e.url.clone());
+            println!("conectando a «{nombre}»…");
+            match player.play_stream(&url, &nombre) {
+                Ok(()) => {
+                    *paused_by_user = false;
+                    println!("♪ en vivo: {nombre}");
+                }
+                Err(err) => println!("{err}"),
+            }
+        }
+        "tema" => {
+            let n = match arg.parse::<usize>() {
+                Ok(n) if n >= 1 => n - 1,
+                _ => {
+                    println!("Uso: tema <n>  (n desde 1; busca primero con 'temas')");
+                    return false;
+                }
+            };
+            let Some((id, titulo, url)) = temas.get(n).map(|t| (t.id.clone(), t.titulo.clone(), t.url.clone())) else {
+                println!("no hay tema nº {arg} en la lista");
+                return false;
+            };
+            let url = match url {
+                Some(url) => url,
+                None => {
+                    println!("resolviendo mp3 de «{titulo}»…");
+                    match online::resolver_tema(&id) {
+                        Ok(url) => {
+                            temas[n].url = Some(url.clone());
+                            url
+                        }
+                        Err(e) => {
+                            println!("{e}");
+                            return false;
+                        }
+                    }
+                }
+            };
+            println!("conectando a «{titulo}»…");
+            match player.play_stream(&url, &titulo) {
+                Ok(()) => {
+                    *paused_by_user = false;
+                    println!("♪ tema: {titulo}");
+                }
+                Err(err) => println!("{err}"),
+            }
+        }
         "sugeridos" => {
             *tab = Tab::Sugeridos;
-            print_tab(*tab, queue);
+            print_tab(*tab, queue, radios, temas);
         }
         "playlist" | "cola" => {
             *tab = Tab::Playlists;
-            print_tab(*tab, queue);
+            print_tab(*tab, queue, radios, temas);
         }
         "estado" | "e" => {
-            let estado = if player.current().is_none() {
-                "sin pista".to_owned()
-            } else if player.is_finished() {
-                "terminada".to_owned()
+            let hay_fuente = player.current().is_some() || player.stream_name().is_some();
+            let estado = if !hay_fuente {
+                "sin pista"
             } else if player.is_paused() {
-                "pausa".to_owned()
+                "pausa"
+            } else if player.current().is_some() && player.is_finished() {
+                "terminada"
             } else {
-                "reproduciendo".to_owned()
+                "reproduciendo"
             };
             println!(
                 "{} {}  [{} / {}]",
                 estado,
-                player
-                    .current()
-                    .map(file_name)
-                    .unwrap_or_else(|| "nada en reproducción".into()),
+                player.titulo(),
                 format_hms(player.position()),
                 player
                     .duration()
                     .map(format_hms)
-                    .unwrap_or_else(|| "--:--".into())
+                    .unwrap_or_else(|| "en vivo".into())
             );
         }
         "buscar" | "seek" => match (arg, player.position()) {
@@ -327,7 +437,7 @@ fn handle_command(
         }
         "info" | "listar" | "l" => {
             *tab = Tab::Playlists;
-            print_tab(*tab, queue);
+            print_tab(*tab, queue, radios, temas);
         }
         "ayuda" | "h" | "?" => print_help(),
         "salir" | "q" | "exit" => return true,
@@ -336,7 +446,7 @@ fn handle_command(
     false
 }
 
-///interpreta el argumento de "buscar": "90", "2:10", "+15", "-30".
+/// interpreta el argumento de "buscar": "90", "2:10", "+15", "-30".
 fn parse_seek(arg: &str, position: Duration) -> Result<Duration, String> {
     let secs: f64 = if let Some(rest) = arg.strip_prefix('+') {
         position.as_secs_f64() + rest.parse::<f64>().map_err(bad_seek)?
@@ -360,7 +470,7 @@ fn bad_seek(_: std::num::ParseFloatError) -> String {
     "formato de tiempo inválido (ejemplos: 90, 2:10, +15, -30)".into()
 }
 
-///formato mm:ss (u h:mm:ss si supera una hora).
+/// formato mm:ss (u h:mm:ss si supera una hora).
 fn format_hms(d: Duration) -> String {
     let s = d.as_secs();
     if s >= 3600 {
@@ -383,6 +493,9 @@ fn print_help() {
          \x20 buscar <+s|-s|m:ss>     salto de tiempo (ej.: +15, -30, 2:10)\n\
          \x20 volumen [0-100]         ajusta (o consulta) el volumen\n\
          \x20 guardar <archivo>       guarda la cola como lista .m3u\n\
+         \x20 radios <consulta>       busca radios online (defecto: lofi)\n\
+         \x20 temas <consulta>        busca temas cc en archive.org (defecto: blues)\n\
+         \x20 radio <n> / tema <n>    conecta la sugerencia nº n\n\
          \x20 sugeridos / cola        cambia de vista (también Ctrl+← / Ctrl+→)\n\
          \x20 estado                  posición y duración de la pista actual\n\
          \x20 ayuda                   muestra esta ayuda\n\
