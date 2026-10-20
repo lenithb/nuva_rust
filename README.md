@@ -1,6 +1,9 @@
 <div align="center">
 
-# nuva
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="assets/logo-oscuro.png">
+    <img src="assets/logo.png" alt="nuva" width="360">
+  </picture>
 
 Reproductor de música ligero para la terminal.
 
