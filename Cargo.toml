@@ -1,0 +1,8 @@
+[package]
+name = "reproductor-rust"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+rodio = "0.18"  # compatibilidad
+hound = "3.5"   # opcional pero maneja mejor .wav
