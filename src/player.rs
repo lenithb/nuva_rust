@@ -118,7 +118,7 @@ impl MusicPlayer {
         self.player.is_paused()
     }
 
-    /// true si la pista cargada ya terminó de sonar.
+    /// Devuelve true si la pista cargada ya terminó de sonar.
     pub fn is_finished(&self) -> bool {
         self.player.empty()
     }

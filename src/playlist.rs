@@ -2,8 +2,8 @@
 //!
 //! Independiente del UI y del motor de audio: solo rutas y orden.
 //! El orden canónico es el de `tracks`; `order` es la permutación
-//! activa (identidad o barajada) y `pos` la posición DENTRO de esa
-//! permutación.
+//! activa (identidad o barajada) y `pos` la posición actual dentro
+//! de esa permutación.
 
 use std::path::{Path, PathBuf};
 use std::{fs, io::Write};
@@ -57,7 +57,7 @@ impl Queue {
         self.tracks.iter()
     }
 
-    /// true si el orden activo difiere del canónico.
+    /// Indica si el orden activo difiere del canónico.
     pub fn shuffled(&self) -> bool {
         self.order.iter().copied().ne(0..self.tracks.len())
     }
@@ -171,9 +171,9 @@ pub(crate) fn file_name(p: &Path) -> String {
         .unwrap_or_else(|| p.display().to_string())
 }
 
-/// Fisher–Yates con un LCG sembrado del reloj del sistema: el barajado
-/// no necesita RNG criptográfica y así seguíamos sin dependencias
-/// externas.
+/// Fisher e Yates sobre un LCG sembrado con el reloj del sistema: el
+/// barajado no necesita azar criptográfico y así se evita una
+/// dependencia externa.
 fn shuffle<T>(slice: &mut [T]) {
     let mut seed = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)

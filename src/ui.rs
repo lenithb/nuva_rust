@@ -1,43 +1,44 @@
 //! Interfaz de nuva: modelo de vistas, navegación de teclado y TUI.
 //!
 //! El modelo (`Tab`, `NavEvent`, `parse_key_event`) es agnóstico del
-//! renderizador y ya lo usa el modo CLI. La TUI de este archivo (y la
-//! futura GUI con egui) reutilizan la misma navegación: Ctrl+←/→
-//! cambian de vista, ←/→ cambian de pista.
+//! renderizador y lo comparten el modo CLI, esta TUI y la futura GUI
+//! (egui). Navegación: Ctrl+izquierda/derecha cambia de vista;
+//! izquierda/derecha cambia de pista.
 
 use std::path::Path;
 use std::time::{Duration, Instant};
 
-use ratatui::Frame;
+use ratatui::crossterm::event;
 use ratatui::layout::{Constraint, Layout};
 use ratatui::style::{Color, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Gauge, List, ListItem, ListState, Padding, Paragraph};
-use ratatui::crossterm::event;
+use ratatui::Frame;
 
 use crate::player::MusicPlayer;
 use crate::playlist::{Queue, Repeat};
 
-/// Pestañas principales de la app (Sugeridos ↔ Playlists).
+/// Vista principal de la app: pestañas Sugeridos y Cola.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tab {
-    /// Vista principal con sugerencias (fase D: API gratuita de música).
+    /// Sugerencias online (fase D: radio-browser.info y archive.org).
     Sugeridos,
-    /// Vista de biblioteca local en cola.
+    /// Biblioteca local en cola de reproducción.
     Playlists,
 }
 
 impl Tab {
+    /// Todas las pestañas, en orden de ciclo.
     pub const fn all() -> [Tab; 2] {
         [Tab::Sugeridos, Tab::Playlists]
     }
 
-    /// Siguiente pestaña (equivale a Ctrl+Right / `>`).
+    /// Pestaña siguiente (equivale a Ctrl+derecha o `>`).
     pub fn next(self) -> Self {
         cycle(self, 1)
     }
 
-    /// Pestaña anterior (equivale a Ctrl+Left / `<`).
+    /// Pestaña anterior (equivale a Ctrl+izquierda o `<`).
     pub fn prev(self) -> Self {
         cycle(self, -1)
     }
@@ -50,10 +51,11 @@ fn cycle(from: Tab, step: i32) -> Tab {
     all[((i + step).rem_euclid(len)) as usize]
 }
 
-/// Sondeo del teclado en la TUI (ms): corto para respuesta ágil.
+/// Intervalo de sondeo del teclado en la TUI.
 const POLL: Duration = Duration::from_millis(120);
-/// Tras `play()`, `is_finished()` puede ser true un instante mientras
-/// la cola decodifica; ignoramos ese suspiro para no saltar pistas.
+/// Justo después de `play()`, `is_finished()` puede devolver true un
+/// instante mientras la cola se prepara; ese margen se ignora para no
+/// saltar pistas.
 const PLAY_GRACE: Duration = Duration::from_millis(500);
 
 /// Ejecuta la TUI sobre la cola dada. Devuelve cuando el usuario sale.
@@ -74,8 +76,10 @@ fn tui_loop(terminal: &mut ratatui::DefaultTerminal, mut queue: Queue) -> Result
     let mut paused = false;
     let mut since_play = Instant::now();
 
+    // Bucle: sondeo el teclado y, al mismo tiempo, avanzo las pistas
+    // automáticamente cuando terminan.
     loop {
-        // Auto-avance cuando la pista terminó (salvo pausa del usuario).
+        // Auto-avance: la pista cargada terminó y el usuario no pausó.
         if !paused
             && player.current().is_some()
             && since_play.elapsed() > PLAY_GRACE
@@ -100,8 +104,12 @@ fn tui_loop(terminal: &mut ratatui::DefaultTerminal, mut queue: Queue) -> Result
                         (Char('c'), event::KeyModifiers::CONTROL) => break, // Ctrl+C
                         (Right, event::KeyModifiers::CONTROL) => tab = tab.next(),
                         (Left, event::KeyModifiers::CONTROL) => tab = tab.prev(),
-                        (Right, _) => track_step(player, &mut queue, &mut paused, true, &mut since_play),
-                        (Left, _) => track_step(player, &mut queue, &mut paused, false, &mut since_play),
+                        (Right, _) => {
+                            track_step(player, &mut queue, &mut paused, true, &mut since_play)
+                        }
+                        (Left, _) => {
+                            track_step(player, &mut queue, &mut paused, false, &mut since_play)
+                        }
                         (Char(' '), _) => {
                             player.toggle();
                             paused = player.is_paused();
@@ -148,9 +156,10 @@ fn tui_loop(terminal: &mut ratatui::DefaultTerminal, mut queue: Queue) -> Result
     Ok(())
 }
 
-/// Pista nueva.
+/// Reproduce una pista; si falla, se ignora el error por ahora
+/// (la futura GUI mostrará un aviso en pantalla).
 fn play_now(player: &mut MusicPlayer, path: &Path) {
-    let _ = player.play(path); // en la GUI esto mostrará un toast de error
+    let _ = player.play(path);
 }
 
 /// Cambia de pista usando la cola (flechas ←/→).
@@ -169,14 +178,14 @@ fn track_step(
     }
 }
 
-/// Logo del header. Por hoy: texto (el emoji luna como placeholder).
+/// Logo del encabezado. Por hoy: texto sin asset.
 ///
-/// Cuando exista el asset real (fase de branding): SVG maestro en
-/// `assets/logo.svg` + PNG derivado en `assets/logo.png` para la TUI
-/// (render con `ratatui-image`, con fallback a este texto en
-/// terminales sin soporte de gráficos).
+/// Cuando exista el recurso gráfico (fase de branding): SVG maestro en
+/// `assets/logo.svg` y PNG derivado en `assets/logo.png` para la TUI
+/// (render con ratatui-image), con fallback a este texto en
+/// terminales sin soporte de gráficos.
 fn header_logo() -> Span<'static> {
-    Span::styled("🌒 nuva", Style::default().fg(Color::Magenta))
+    Span::styled("nuva", Style::default().fg(Color::Magenta))
 }
 
 /// Dibuja el frame completo: header (pestañas), cuerpo (vista) y barra
@@ -189,9 +198,12 @@ fn draw(
     list_state: &mut ListState,
     sel: usize,
 ) {
-    let [header, body, status] =
-        Layout::vertical([Constraint::Length(3), Constraint::Min(0), Constraint::Length(4)])
-            .areas(frame.area());
+    let [header, body, status] = Layout::vertical([
+        Constraint::Length(3),
+        Constraint::Min(0),
+        Constraint::Length(4),
+    ])
+    .areas(frame.area());
 
     // ── Header ───────────────────────────────────────────────────
     let tabs = Tab::all()
@@ -211,10 +223,7 @@ fn draw(
         .centered();
 
     let title = Line::from(header_logo()).centered();
-    frame.render_widget(
-        Paragraph::new(vec![title, tabs]),
-        header,
-    );
+    frame.render_widget(Paragraph::new(vec![title, tabs]), header);
 
     // ── Cuerpo según pestaña ─────────────────────────────────────
     match tab {
@@ -225,7 +234,7 @@ fn draw(
                 .block(
                     Block::bordered()
                         .title(Span::styled(
-                            " Cola — ⏎ reproducir · j/k navegar · Ctrl+←/→ vistas ",
+                            " Cola — Enter reproduce · j/k navega · Ctrl+flechas vistas ",
                             Style::default().fg(Color::Magenta),
                         ))
                         .border_style(Style::default().fg(Color::DarkGray)),
@@ -238,8 +247,8 @@ fn draw(
     }
 
     // ── Barra inferior (Now Playing) ─────────────────────────────
-    let [gauge_area, footer] = Layout::vertical([Constraint::Length(3), Constraint::Length(1)])
-        .areas(status);
+    let [gauge_area, footer] =
+        Layout::vertical([Constraint::Length(3), Constraint::Length(1)]).areas(status);
 
     let now = player
         .current()
@@ -261,10 +270,7 @@ fn draw(
     let info_line = Line::from(vec![
         Span::styled(format!("{state} {now}"), Style::default().fg(Color::White)),
         Span::styled(
-            format!(
-                "  — vol {}%{rep}{shuf}",
-                (player.volume() * 100.0).round()
-            ),
+            format!("  — vol {}%{rep}{shuf}", (player.volume() * 100.0).round()),
             Style::default().fg(Color::DarkGray),
         ),
     ]);
@@ -291,7 +297,7 @@ fn draw(
         .percent(pct);
     frame.render_widget(gauge, gauge_area);
 
-    // pie con atajos
+    // Pie con los atajos principales.
     let ayuda = Line::from(Span::styled(
         "→/← pista · espacio pausa · a aleatorio · r repetir · +/- volumen · s detener · q salir",
         Style::default().fg(Color::DarkGray),
@@ -304,18 +310,36 @@ fn draw(
 fn sugeridos(frame: &mut Frame, area: ratatui::layout::Rect) {
     let block = Block::bordered()
         .padding(Padding::horizontal(2))
-        .title(Span::styled(" Sugeridos ", Style::default().fg(Color::Magenta)))
+        .title(Span::styled(
+            " Sugeridos ",
+            Style::default().fg(Color::Magenta),
+        ))
         .border_style(Style::default().fg(Color::DarkGray));
     let plain = Style::default().fg(Color::Gray);
     frame.render_widget(
         Paragraph::new(vec![
-            Line::from(Span::styled("Muy pronto aquí: sugerencias en vivo 🌙", plain)),
+            Line::from(Span::styled(
+                "Muy pronto: sugerencias en vivo.",
+                plain,
+            )),
             Line::default(),
-            Line::from(Span::styled("· radio-browser.info — radios sin clave API (streaming directo)", plain)),
-            Line::from(Span::styled("· archive.org — música CC / dominio público a la carta", plain)),
-            Line::from(Span::styled("· MusicBrainz — metadatos y carátulas sin API key", plain)),
+            Line::from(Span::styled(
+                "· radio-browser.info — radios sin clave API (streaming directo)",
+                plain,
+            )),
+            Line::from(Span::styled(
+                "· archive.org — música CC / dominio público a la carta",
+                plain,
+            )),
+            Line::from(Span::styled(
+                "· MusicBrainz — metadatos y carátulas sin API key",
+                plain,
+            )),
             Line::default(),
-            Line::from(Span::styled("Ctrl+→ para ver tu Cola mientras tanto", Style::default().fg(Color::Magenta))),
+            Line::from(Span::styled(
+                "Ctrl+→ para ver tu Cola mientras tanto",
+                Style::default().fg(Color::Magenta),
+            )),
         ])
         .block(block),
         area,

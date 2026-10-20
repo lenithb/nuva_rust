@@ -1,12 +1,14 @@
-//! nuva — reproductor de música ligero por consola.
+//! nuva — reproductor de música ligero para la consola.
 //!
 //! Uso:
-//!   cargo run                       # escanea el directorio actual
-//!   cargo run -- /ruta/a/musica     # escanea el directorio indicado
+//!   nuva                       escanea el directorio actual
+//!   nuva /ruta/a/musica        escanea el directorio indicado
+//!   nuva --cli                 modo consola clásico
 //!
-//! Navegación: Ctrl+← / Ctrl+→ cambian entre las vistas (Sugeridos ↔
-//! Playlists); ← / → pasan a la pista anterior/siguiente (también se
-//! pueden usar los comandos `anterior`/`siguiente`).
+//! Navegación: Ctrl+izquierda/derecha cambia entre las vistas
+//! (Sugeridos y Cola); izquierda/derecha pasa a la pista
+//! anterior/siguiente. En modo consola lo mismo funciona,
+//! además de los comandos `anterior`/`siguiente`.
 
 mod player;
 mod playlist;
@@ -58,7 +60,7 @@ fn run() -> Result<(), String> {
 
 /// Modo consola clásico (nuva --cli).
 fn run_cli(tracks: Vec<PathBuf>) -> Result<(), String> {
-    println!("🌒 nuva — {} pistas (modo consola; pásate a la TUI sin --cli)\n", tracks.len());
+    println!("nuva — {} pistas (modo consola; la TUI arranca sin --cli)\n", tracks.len());
     let mut queue = Queue::new(tracks);
     let mut tab = Tab::Playlists;
     print_tab(tab, &queue);
@@ -114,7 +116,7 @@ fn run_cli(tracks: Vec<PathBuf>) -> Result<(), String> {
     }
 
     player.stop();
-    println!("¡Hasta luego! 👋");
+    println!("Hasta luego.");
     Ok(())
 }
 
@@ -139,22 +141,20 @@ fn dispatch_nav(
     }
 }
 
-/// Cambia de pestaña (Ctrl+flechas). En Sugeridos (fase D) vendrán las
-/// pistas recomendadas por la API; hoy es un placeholder informativo.
+/// Encabezado de la vista activa.
 fn print_tab(tab: Tab, queue: &Queue) {
     match tab {
-        Tab::Sugeridos => println!("⭯✦ Sugeridos (próximamente: radio-browser.info / archive.org)"),
-        Tab::Playlists => {
-            println!("☰ Cola ({} pistas, repetición: {:?}, barajado: {})",
-                queue.len(),
-                queue.repeat(),
-                if queue.shuffled() { "sí" } else { "no" }
-            );
-        }
+        Tab::Sugeridos => println!("Sugeridos (próximamente: radio-browser.info / archive.org)"),
+        Tab::Playlists => println!(
+            "Cola ({} pistas, repetición: {:?}, barajado: {})",
+            queue.len(),
+            queue.repeat(),
+            if queue.shuffled() { "sí" } else { "no" }
+        ),
     }
 }
 
-/// Pistas: reproducir una por índice/nombre y anunciar título.
+/// Reproduce por ruta e informa el título.
 fn play_now(player: &mut MusicPlayer, path: &Path) {
     match player.play(path) {
         Ok(()) => println!("♪ Reproduciendo: {}", file_name(path)),
@@ -282,18 +282,18 @@ fn handle_command(
             print_tab(*tab, queue);
         }
         "estado" | "e" => {
-            let mark = if player.current().is_none() {
-                "⏹"
+            let estado = if player.current().is_none() {
+                "sin pista".to_owned()
             } else if player.is_finished() {
-                "✓ (terminada)"
+                "terminada".to_owned()
             } else if player.is_paused() {
-                "⏸"
+                "pausa".to_owned()
             } else {
-                "▶"
+                "reproduciendo".to_owned()
             };
             println!(
                 "{} {}  [{} / {}]",
-                mark,
+                estado,
                 player
                     .current()
                     .map(file_name)

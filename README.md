@@ -1,6 +1,6 @@
 <div align="center">
 
-# 🌒 nuva
+# nuva
 
 Reproductor de música ligero para la terminal.
 
@@ -27,7 +27,7 @@ cargo run -- /ruta --cli        # modo consola clásico
 ```
 Ctrl+→ / Ctrl+←    cambia la vista (Sugeridos ↔ Cola)
 → / ←              pista siguiente / anterior
-⏎                  reproduce la pista seleccionada
+Enter              reproduce la pista seleccionada
 j / k o ↑ / ↓      navega la lista
 espacio            pausa / reanuda
 a                  alterna barajado
@@ -40,20 +40,20 @@ q / Esc            salir
 ### Modo consola (`--cli`)
 
 ```
-Comandos:
- reproducir <n|nombre>   reproduce la pista n (desde 1) o la que contenga «nombre»
- pausar                  pausa la reproducción
- continuar               reanuda después de una pausa
- alternar                cambia entre pausa y reproducción
- detener                 detiene y descarga la pista actual
- siguiente               siguiente pista (al final vuelve a la primera)
- anterior                pista anterior
- buscar <+s|-s|m:ss>     salto de tiempo (ej.: +15, -30, 2:10)
- volumen [0-100]         ajusta (o consulta) el volumen
- estado                  posición y duración de la pista actual
- info                    vuelve a listar las pistas
- ayuda                   muestra esta ayuda
- salir                   termina el programa
+reproducir <n|nombre>    reproduce la pista n (desde 1) o la que contenga «nombre»
+siguiente / anterior     cambia de pista (también ← / →)
+pausar / continuar       pausa y reanuda
+alternar                 cambia entre pausa y reproducción
+detener                  detiene y descarga la pista actual
+aleatorio                alterna el barajado de la cola
+repetir [off|todas|una]  modo de repetición (sin argumento: cicla)
+buscar <+s|-s|m:ss>      salto de tiempo (ej.: +15, -30, 2:10)
+volumen [0-100]          ajusta (o consulta) el volumen
+guardar <archivo>        guarda la cola como lista .m3u
+sugeridos / cola         cambia de vista (también Ctrl+← / Ctrl+→)
+estado                   posición y duración de la pista actual
+ayuda                    muestra esta ayuda
+salir                    termina el programa
 ```
 
 ## Requisitos del sistema
@@ -68,15 +68,16 @@ sudo dnf install alsa-lib-devel       # Fedora
 ## Compilación
 
 ```sh
-cargo build --release   # binario ~1,9 MB con LTO y símbolos stripping
+cargo build --release   # binario ~2,3 MB con LTO y símbolos strip
 ```
 
 ## Estructura
 
-- `src/main.rs` — escaneo de pistas, menú y comandos de consola.
+- `src/main.rs` — arranque, escaneo de pistas y modo consola.
 - `src/player.rs` — motor de audio (play/pausa/stop/volumen/seek).
-- `src/playlist.rs` — *(en desarrollo)* cola, shuffle, repeat.
-- `src/ui.rs` — *(en desarrollo)* interfaz TUI.
+- `src/playlist.rs` — cola de reproducción (orden, barajado, repetición).
+- `src/ui.rs` — modelo de vistas, navegación de teclado y TUI.
+- `assets/` — logo y elementos de marca (por incorporar).
 
 ## Hoja de ruta
 

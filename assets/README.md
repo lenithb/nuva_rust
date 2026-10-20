@@ -1,4 +1,4 @@
-# assets — branding de nuva 🌒
+# assets — branding de nuva
 
 Lugar del logo y demás elementos visuales.
 
