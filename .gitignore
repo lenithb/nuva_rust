@@ -1,0 +1,16 @@
+# Artefactos de compilación
+/target/
+
+# Configuración local de esta máquina (workaround ALSA con rutas de /tmp)
+.cargo/
+
+# Editor / IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
