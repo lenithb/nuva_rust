@@ -16,15 +16,61 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Gauge, List, ListItem, ListState, Paragraph};
 use ratatui::Frame;
 
-use crate::online::{self, Estacion, Tema};
+use crate::online::{self, Estacion, Tema as TemaOnline};
 use crate::player::MusicPlayer;
 use crate::playlist::{Queue, Repeat};
 
 /// mensaje que regresa del hilo de búsqueda online.
 enum SugBuf {
     Radios(Vec<Estacion>),
-    Temas(Vec<Tema>),
+    Temas(Vec<TemaOnline>),
     Error(String),
+}
+
+/// temas de la tui, fijos: ultra oscuro (por defecto) y claro.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Tema {
+    Oscuro,
+    Claro,
+}
+
+impl Tema {
+    /// alterna entre oscuro y claro.
+    fn alterna(self) -> Self {
+        if self == Tema::Oscuro {
+            Tema::Claro
+        } else {
+            Tema::Oscuro
+        }
+    }
+}
+
+/// paleta monocroma del tema: fondo #000000/#ffffff y su contrario.
+#[derive(Clone, Copy)]
+struct Paleta {
+    fondo: Color,
+    texto: Color,
+    /// tono secundario (bordes, metadatos, atajos).
+    atenuado: Color,
+}
+
+impl Tema {
+    fn paleta(self) -> Paleta {
+        match self {
+            // ultra oscuro: negro puro con blanco.
+            Tema::Oscuro => Paleta {
+                fondo: Color::Rgb(0, 0, 0),
+                texto: Color::Rgb(255, 255, 255),
+                atenuado: Color::DarkGray,
+            },
+            // claro: blanco puro con negro.
+            Tema::Claro => Paleta {
+                fondo: Color::Rgb(255, 255, 255),
+                texto: Color::Rgb(0, 0, 0),
+                atenuado: Color::DarkGray,
+            },
+        }
+    }
 }
 
 /// fuente de la vista sugeridos.
@@ -69,7 +115,7 @@ struct SugEstado {
     fuente: FuenteSug,
     consulta: &'static str,
     radios: Vec<Estacion>,
-    temas: Vec<Tema>,
+    temas: Vec<TemaOnline>,
     rx: Option<Receiver<SugBuf>>,
     err: Option<String>,
 }
@@ -205,6 +251,7 @@ fn tui_loop(terminal: &mut ratatui::DefaultTerminal, mut queue: Queue) -> Result
     // vista dispara la búsqueda inicial.
     let mut sug = SugEstado::nueva();
     sug.buscar();
+    let mut tema = Tema::Oscuro;
 
     // bucle: sondeo el teclado y, al mismo tiempo, avanzo las pistas
     // automáticamente cuando terminan.
@@ -262,6 +309,7 @@ fn tui_loop(terminal: &mut ratatui::DefaultTerminal, mut queue: Queue) -> Result
                             }
                         }
                         (Char('a'), _) => queue.toggle_shuffle(),
+                        (Char('t'), _) => tema = tema.alterna(),
                         (Char('f'), _) => {
                             sug.alterna_fuente();
                             sel = 0;
@@ -302,7 +350,7 @@ fn tui_loop(terminal: &mut ratatui::DefaultTerminal, mut queue: Queue) -> Result
 
         // dibujo
         terminal
-            .draw(|frame| draw(frame, player, &queue, tab, &mut list_state, sel, &sug))
+            .draw(|frame| draw(frame, player, &queue, tab, &mut list_state, sel, &sug, tema))
             .map_err(|e| e.to_string())?;
     }
 
@@ -378,17 +426,14 @@ fn lanzar_busqueda(
     *sug_rx = Some(rx);
 }
 
-/// logo del encabezado. por hoy: texto sin asset.
-/// cuando exista el recurso gráfico (fase de branding): svg maestro en
-/// `assets/logo.svg` y png derivado en `assets/logo.png` para la tui
-/// (render con ratatui-image), con fallback a este texto en
-/// terminales sin soporte de gráficos.
-fn header_logo() -> Span<'static> {
-    Span::styled("nuva", Style::default().fg(Color::Magenta))
+/// logo del header: el texto «nuva» teñido por el tema.
+fn header_logo(pal: &Paleta) -> Span<'static> {
+    Span::styled("nuva", Style::default().fg(pal.texto))
 }
 
 /// dibuja el frame completo: header (pestañas), cuerpo (vista) y barra
 /// inferior de estado (now playing).
+#[allow(clippy::too_many_arguments)]
 fn draw(
     frame: &mut Frame,
     player: &MusicPlayer,
@@ -397,7 +442,13 @@ fn draw(
     list_state: &mut ListState,
     sel: usize,
     sug: &SugEstado,
+    tema: Tema,
 ) {
+    let pal = tema.paleta();
+
+    // fondo del tema en toda la pantalla (el resto dibuja encima).
+    frame.render_widget(Block::new().style(Style::default().bg(pal.fondo)), frame.area());
+
     let [header, body, status] = Layout::vertical([
         Constraint::Length(3),
         Constraint::Min(0),
@@ -414,15 +465,15 @@ fn draw(
                 Tab::Playlists => " [Cola] ".to_owned(),
             };
             if *t == tab {
-                Span::styled(name, Style::default().bg(Color::Magenta).fg(Color::Black))
+                Span::styled(name, Style::default().bg(pal.texto).fg(pal.fondo))
             } else {
-                Span::styled(name, Style::default().fg(Color::DarkGray))
+                Span::styled(name, Style::default().fg(pal.atenuado))
             }
         })
         .collect::<Line>()
         .centered();
 
-    let title = Line::from(header_logo()).centered();
+    let title = Line::from(header_logo(&pal)).centered();
     frame.render_widget(Paragraph::new(vec![title, tabs]), header);
 
     // ── cuerpo según pestaña ─────────────────────────────────────
@@ -435,15 +486,15 @@ fn draw(
                     Block::bordered()
                         .title(Span::styled(
                             " Cola — Enter reproduce · j/k navega · Ctrl+flechas vistas ",
-                            Style::default().fg(Color::Magenta),
+                            Style::default().fg(pal.texto),
                         ))
-                        .border_style(Style::default().fg(Color::DarkGray)),
+                        .border_style(Style::default().fg(pal.atenuado)),
                 )
                 .highlight_symbol("▶ ")
-                .highlight_style(Style::default().bg(Color::Indexed(234)).fg(Color::Magenta));
+                .highlight_style(Style::default().bg(pal.texto).fg(pal.fondo));
             frame.render_stateful_widget(list, body, list_state);
         }
-        Tab::Sugeridos => sugeridos(frame, body, list_state, sel, sug),
+        Tab::Sugeridos => sugeridos(frame, body, list_state, sel, sug, pal),
     }
 
     // ── barra inferior (now playing) ─────────────────────────────
@@ -465,10 +516,10 @@ fn draw(
     };
     let shuf = if queue.shuffled() { " · aleat" } else { "" };
     let info_line = Line::from(vec![
-        Span::styled(format!("{state} {now}"), Style::default().fg(Color::White)),
+        Span::styled(format!("{state} {now}"), Style::default().fg(pal.texto)),
         Span::styled(
             format!("  — vol {}%{rep}{shuf}", (player.volume() * 100.0).round()),
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(pal.atenuado),
         ),
     ]);
 
@@ -486,18 +537,18 @@ fn draw(
     let gauge = Gauge::default()
         .block(
             Block::bordered()
-                .border_style(Style::default().fg(Color::DarkGray))
+                .border_style(Style::default().fg(pal.atenuado))
                 .title(info_line),
         )
-        .gauge_style(Style::default().fg(Color::Magenta))
+        .gauge_style(Style::default().fg(pal.texto))
         .label(etiqueta)
         .percent(pct);
     frame.render_widget(gauge, gauge_area);
 
     // pie con los atajos principales.
     let ayuda = Line::from(Span::styled(
-        "→/← pista · espacio pausa · f fuente sugeridos · a aleatorio · r repetir · +/- volumen · s detener · q salir",
-        Style::default().fg(Color::DarkGray),
+        "→/← pista · espacio pausa · f fuente · t tema · a aleatorio · r repetir · +/- volumen · s detener · q salir",
+        Style::default().fg(pal.atenuado),
     ))
     .centered();
     frame.render_widget(Paragraph::new(ayuda), footer);
@@ -511,6 +562,7 @@ fn sugeridos(
     list_state: &mut ListState,
     sel: usize,
     sug: &SugEstado,
+    pal: Paleta,
 ) {
     let SugEstado {
         fuente,
@@ -526,10 +578,10 @@ fn sugeridos(
             .iter()
             .map(|e| {
                 ListItem::new(Line::from(vec![
-                    Span::styled(e.nombre.clone(), Style::default().fg(Color::Gray)),
+                    Span::styled(e.nombre.clone(), Style::default().fg(pal.texto)),
                     Span::styled(
                         format!("  · {} kbps {}", e.bitrate, e.codec.to_lowercase()),
-                        Style::default().fg(Color::DarkGray),
+                        Style::default().fg(pal.atenuado),
                     ),
                 ]))
             })
@@ -539,7 +591,7 @@ fn sugeridos(
             .map(|t| {
                 ListItem::new(Line::from(Span::styled(
                     t.titulo.clone(),
-                    Style::default().fg(Color::Gray),
+                    Style::default().fg(pal.texto),
                 )))
             })
             .collect(),
@@ -559,22 +611,22 @@ fn sugeridos(
             Block::bordered()
                 .title(Span::styled(
                     lineas_titulo.join("·"),
-                    Style::default().fg(Color::Magenta),
+                    Style::default().fg(pal.texto),
                 ))
                 .title_bottom(Span::styled(
                     " f alterna la fuente · Enter conecta ",
-                    Style::default().fg(Color::DarkGray),
+                    Style::default().fg(pal.atenuado),
                 ))
-                .border_style(Style::default().fg(Color::DarkGray)),
+                .border_style(Style::default().fg(pal.atenuado)),
         )
         .highlight_symbol("▶ ")
-        .highlight_style(Style::default().bg(Color::Indexed(234)).fg(Color::Magenta));
+        .highlight_style(Style::default().bg(pal.texto).fg(pal.fondo));
 
     if total == 0 && rx.is_none() && err.is_none() {
         // sin datos todavía: mensaje de bienvenida interno de la vista.
         list = List::new(vec![ListItem::new(Line::from(Span::styled(
             "sin sugerencias; pulsa f para recargar",
-            Style::default().fg(Color::DarkGray),
+            Style::default().fg(pal.atenuado),
         )))]);
     } else {
         list_state.select(Some(sel.clamp(0, total.saturating_sub(1))));

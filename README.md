@@ -31,6 +31,7 @@ Ctrl+→ / Ctrl+←    cambia la vista (Sugeridos ↔ Cola)
 Enter              reproduce la pista seleccionada; en Sugeridos conecta el stream
 j / k o ↑ / ↓      navega la lista
 f                  en Sugeridos: alterna radios ↔ temas y rebusca
+t                  alterna el tema: ultra oscuro (#000000) ↔ claro (#ffffff)
 espacio            pausa / reanuda
 a                  alterna barajado
 r                  cicla repetición (off → todas → una)
@@ -101,4 +102,5 @@ cargo build --release   # binario ~2,3 MB con LTO y símbolos strip
 - [x] Fase B: playlist (cola, shuffle, repeat, guardar M3U, auto-avance)
 - [x] Fase C: interfaz TUI (ratatui 0.30, vistas Ctrl+flechas)
 - [x] Fase D: música online gratis (radio-browser.info, Internet Archive)
-- [ ] Assets, estilos y temas
+- [x] Temas: ultra oscuro (`#000000` + blanco) y claro (`#ffffff` + negro)
+- [ ] Assets y logo (svg/png ya cargados; falta el render en la TUI)
